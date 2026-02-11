@@ -108,9 +108,9 @@
         <input type="text" id="doc-eng-name" placeholder="e.g., Acme Corp Digital Transformation">
       </div>
       <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
-        <input type="file" id="file-input" multiple accept=".pdf,.txt,.text" style="display:none" onchange="handleFileSelect(this.files)">
+        <input type="file" id="file-input" multiple style="display:none" onchange="handleFileSelect(this.files)">
         <p><strong>Drop files here</strong> or click to browse</p>
-        <p class="text-sm text-muted">PDF and text files, up to 10MB each</p>
+        <p class="text-sm text-muted">PDF and text-based files (.md, .vtt, .csv, etc.), up to 10MB each</p>
       </div>
       <div id="file-list" class="mt-4"></div>
       <div id="extraction-status" class="mt-4 hidden">

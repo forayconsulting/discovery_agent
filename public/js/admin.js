@@ -319,11 +319,13 @@ async function createFromMonday() {
 // Document upload
 function handleFileSelect(files) {
   const maxSize = 10 * 1024 * 1024; // 10MB
-  const allowedTypes = ['application/pdf', 'text/plain'];
+  const textExtensions = ['.md', '.txt', '.text', '.vtt', '.csv', '.json', '.xml', '.yaml', '.yml', '.log', '.html', '.htm', '.rtf'];
 
   for (const file of files) {
-    if (!allowedTypes.includes(file.type) && !file.name.endsWith('.txt') && !file.name.endsWith('.text')) {
-      alert(`"${file.name}" is not a supported file type. Please upload PDF or text files.`);
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    const isAllowed = file.type === 'application/pdf' || file.type.startsWith('text/') || textExtensions.includes(ext);
+    if (!isAllowed) {
+      alert(`"${file.name}" is not a supported file type. Please upload PDF or text-based files.`);
       continue;
     }
     if (file.size > maxSize) {

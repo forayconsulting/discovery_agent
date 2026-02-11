@@ -47,7 +47,7 @@ wrangler.toml           # Cloudflare Workers configuration
 ## Key Features
 
 - **Admin Dashboard:** Create engagements (manually, from Monday.com, or from uploaded documents), batch-create stakeholder sessions, manage settings
-- **Document Upload & Extraction:** Upload SOWs, project briefs, or prior assessments (PDF/text, up to 10MB each) and have Claude auto-generate the engagement Description and Context fields. Documents are stored in R2, extraction runs asynchronously via `waitUntil`, and the admin UI polls for completion
+- **Document Upload & Extraction:** Upload SOWs, project briefs, or prior assessments (PDF and text-based files like .md, .vtt, .csv, etc., up to 10MB each) and have Claude auto-generate the engagement Description and Context fields. Documents are stored in R2, extraction runs asynchronously via `waitUntil`, and the admin UI polls for completion
 - **Monday.com Integration:** Import engagement context from Monday.com boards/items (API key configurable via admin panel or env var)
 - **AI-Driven Discovery:** Claude generates 2-4 tailored multiple-choice questions per batch, adapting based on prior answers. Questions are open-ended and non-leading, following a first-principles approach that lets the stakeholder's genuine perspective emerge
 - **Session Steering:** Admins can request AI-suggested focus areas per stakeholder (based on role and engagement context), select from them, and inject custom steering that guides — but doesn't force — the discovery questions
