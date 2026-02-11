@@ -347,6 +347,24 @@ export async function updateDocumentStatus(
   }
 }
 
+export async function updateAllDocumentStatuses(
+  hyperdrive: Hyperdrive,
+  engagementId: string,
+  status: string,
+  errorMessage?: string
+) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    await client.query(
+      'UPDATE engagement_documents SET processing_status = $1, error_message = $2 WHERE engagement_id = $3',
+      [status, errorMessage || null, engagementId]
+    );
+  } finally {
+    await client.end();
+  }
+}
+
 export async function updateEngagementFromDocuments(
   hyperdrive: Hyperdrive,
   engagementId: string,

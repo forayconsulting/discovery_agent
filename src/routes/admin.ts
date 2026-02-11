@@ -414,9 +414,7 @@ admin.post('/engagements/:id/documents/extract', async (c) => {
     (async () => {
       try {
         // Mark all docs as processing
-        for (const doc of documents) {
-          await db.updateDocumentStatus(c.env.HYPERDRIVE, doc.id, 'processing');
-        }
+        await db.updateAllDocumentStatuses(c.env.HYPERDRIVE, engagementId, 'processing');
 
         // Fetch file data from R2
         const docData: Array<{ filename: string; contentType: string; data: ArrayBuffer }> = [];
@@ -434,19 +432,12 @@ admin.post('/engagements/:id/documents/extract', async (c) => {
         // Call Claude for extraction
         const result = await claude.extractContextFromDocuments(c.env.ANTHROPIC_API_KEY, docData);
 
-        // Update engagement with extracted data
+        // Update engagement and mark all docs as completed
         await db.updateEngagementFromDocuments(c.env.HYPERDRIVE, engagementId, result.description, result.context);
-
-        // Mark all docs as completed
-        for (const doc of documents) {
-          await db.updateDocumentStatus(c.env.HYPERDRIVE, doc.id, 'completed');
-        }
+        await db.updateAllDocumentStatuses(c.env.HYPERDRIVE, engagementId, 'completed');
       } catch (err) {
         console.error('Document extraction failed:', err);
-        // Mark all docs as failed
-        for (const doc of documents) {
-          await db.updateDocumentStatus(c.env.HYPERDRIVE, doc.id, 'failed', (err as Error).message);
-        }
+        await db.updateAllDocumentStatuses(c.env.HYPERDRIVE, engagementId, 'failed', (err as Error).message).catch(() => {});
       }
     })()
   );
