@@ -74,7 +74,7 @@ export async function generateNextBatch(
   }
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-opus-4-6',
     max_tokens: 1024,
     system: systemPrompt,
     messages,
@@ -143,7 +143,7 @@ Present the stakeholder's perspective faithfully — report what they expressed,
     .join('\n');
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-opus-4-6',
     max_tokens: 2048,
     system: systemPrompt,
     messages: [
@@ -173,7 +173,7 @@ export async function generateSteeringSuggestions(
   const client = new Anthropic({ apiKey });
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-opus-4-6',
     max_tokens: 1024,
     system: 'You are a professional discovery consultant. Suggest focus-area prompts that would help steer a stakeholder discovery session toward the most useful topics given the engagement context and stakeholder role.',
     messages: [
@@ -206,7 +206,7 @@ export async function generateEngagementOverview(
     .join('\n\n');
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-opus-4-6',
     max_tokens: 2048,
     system: 'You are a professional discovery consultant. Synthesize multiple stakeholder discovery summaries into one engagement-level overview. Identify common themes, consensus points, and areas of divergence. Present findings faithfully without editorializing.',
     messages: [
