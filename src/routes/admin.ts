@@ -278,18 +278,27 @@ admin.post('/engagements/:id/refresh-overview', async (c) => {
     return c.json({ error: 'Need at least 2 completed summaries to generate an overview' }, 400);
   }
 
-  const overview = await claude.generateEngagementOverview(
-    c.env.ANTHROPIC_API_KEY,
-    engagement.context || '',
-    allSummaries.map((s: any) => ({
-      stakeholderName: s.stakeholder_name,
-      stakeholderRole: s.stakeholder_role,
-      summary: s.ai_summary,
-    }))
+  // Fire-and-forget: generate overview in the background to avoid request timeout
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        const overview = await claude.generateEngagementOverview(
+          c.env.ANTHROPIC_API_KEY,
+          engagement.context || '',
+          allSummaries.map((s: any) => ({
+            stakeholderName: s.stakeholder_name,
+            stakeholderRole: s.stakeholder_role,
+            summary: s.ai_summary,
+          }))
+        );
+        await db.updateEngagementOverview(c.env.HYPERDRIVE, engagementId, overview);
+      } catch (err) {
+        console.error('Failed to generate engagement overview:', err);
+      }
+    })()
   );
 
-  await db.updateEngagementOverview(c.env.HYPERDRIVE, engagementId, overview);
-  return c.json({ overview });
+  return c.json({ generating: true });
 });
 
 // POST /api/admin/sessions/:sessionId/retry-summary

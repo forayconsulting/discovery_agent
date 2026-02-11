@@ -5,6 +5,7 @@ let authToken = localStorage.getItem('admin_token');
 let currentEngagementId = null;
 let engagementData = null;
 let summaryPollTimer = null;
+let overviewPollTimer = null;
 
 // Helpers
 function apiHeaders() {
@@ -33,6 +34,7 @@ async function apiFetch(path, options = {}) {
 // Views
 function showView(view) {
   stopSummaryPolling();
+  stopOverviewPolling();
   const allScreens = ['login-screen', 'list-screen', 'create-screen', 'detail-screen', 'settings-screen'];
   allScreens.forEach((id) => document.getElementById(id).classList.add('hidden'));
   document.getElementById('nav').classList.toggle('hidden', view === 'login');
@@ -712,6 +714,7 @@ function renderAggregate() {
   const autoCollapse = completedSummaries.length > 2;
 
   // Engagement overview section
+  const overviewGenerating = overviewPollTimer && !engagementData.engagement_overview;
   const overviewHtml = engagementData.engagement_overview
     ? `<div class="card">
         <div class="flex-between">
@@ -720,15 +723,25 @@ function renderAggregate() {
         </div>
         <div class="summary-block">${escapeHtml(engagementData.engagement_overview)}</div>
       </div>`
-    : completedSummaries.length >= 2
+    : overviewGenerating
       ? `<div class="card">
           <div class="flex-between">
             <h3>Engagement Overview</h3>
-            <button class="btn btn-primary btn-sm" onclick="refreshOverview()">Generate Overview</button>
           </div>
-          <p class="text-sm text-muted mt-4">An AI-generated overview synthesizing all stakeholder summaries will appear here.</p>
+          <div class="summary-generating">
+            <div class="spinner"></div>
+            <p class="text-muted">Generating overview...</p>
+          </div>
         </div>`
-      : '';
+      : completedSummaries.length >= 2
+        ? `<div class="card">
+            <div class="flex-between">
+              <h3>Engagement Overview</h3>
+              <button class="btn btn-primary btn-sm" onclick="refreshOverview()">Generate Overview</button>
+            </div>
+            <p class="text-sm text-muted mt-4">An AI-generated overview synthesizing all stakeholder summaries will appear here.</p>
+          </div>`
+        : '';
 
   // Pending summary cards
   const pendingHtml = pendingSummaries.map((r) => {
@@ -781,12 +794,31 @@ function toggleSummary(header) {
   card.classList.toggle('collapsed');
 }
 
-async function refreshOverview() {
-  const el = document.getElementById('detail-aggregate');
-  // Find the overview button and show loading state
-  const btns = el.querySelectorAll('button');
-  btns.forEach((b) => { if (b.textContent.includes('Overview') || b.textContent.includes('Refresh') || b.textContent.includes('Generate')) { b.disabled = true; b.textContent = 'Generating...'; } });
+function stopOverviewPolling() {
+  if (overviewPollTimer) {
+    clearInterval(overviewPollTimer);
+    overviewPollTimer = null;
+  }
+}
 
+function startOverviewPolling() {
+  stopOverviewPolling();
+  overviewPollTimer = setInterval(async () => {
+    try {
+      const res = await apiFetch(`/engagements/${currentEngagementId}`);
+      const data = await res.json();
+      engagementData = data.engagement;
+      if (engagementData.engagement_overview) {
+        stopOverviewPolling();
+        renderAggregate();
+      }
+    } catch (err) {
+      // Silently retry on next interval
+    }
+  }, 5000);
+}
+
+async function refreshOverview() {
   try {
     const res = await apiFetch(`/engagements/${currentEngagementId}/refresh-overview`, {
       method: 'POST',
@@ -798,14 +830,11 @@ async function refreshOverview() {
       return;
     }
 
-    const data = await res.json();
-    engagementData.engagement_overview = data.overview;
+    // Show spinner immediately and start polling
+    startOverviewPolling();
     renderAggregate();
   } catch (err) {
     alert('Failed to generate overview.');
-  } finally {
-    // Re-enable buttons (renderAggregate will replace them anyway)
-    btns.forEach((b) => { b.disabled = false; });
   }
 }
 
