@@ -1,0 +1,33 @@
+{
+  "name": "discovery_agent",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forayconsulting/discovery_agent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/forayconsulting/discovery_agent/issues"
+  },
+  "homepage": "https://github.com/forayconsulting/discovery_agent#readme",
+  "description": "",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
+    "hono": "^4.11.9",
+    "pg": "^8.18.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260210.0",
+    "@types/pg": "^8.16.0",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.64.0"
+  }
+}

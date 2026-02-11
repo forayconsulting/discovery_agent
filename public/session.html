@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discovery Session</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Loading -->
+    <div id="loading-screen" class="loading-container">
+      <div class="spinner spinner-lg"></div>
+      <p>Loading your session...</p>
+    </div>
+
+    <!-- Error -->
+    <div id="error-screen" class="hidden">
+      <div class="card welcome">
+        <h1>Session Not Found</h1>
+        <p id="error-text">This session link is invalid or has expired.</p>
+      </div>
+    </div>
+
+    <!-- Welcome -->
+    <div id="welcome-screen" class="hidden">
+      <div class="card welcome">
+        <h1>Welcome, <span id="welcome-name"></span></h1>
+        <p>You've been invited to a discovery session for <strong id="welcome-engagement"></strong>. We'll ask you a series of questions to understand your perspective and priorities. It should take about 5-10 minutes.</p>
+        <button class="btn btn-primary" id="begin-btn" onclick="startSession()">Begin Discovery</button>
+      </div>
+    </div>
+
+    <!-- Already completed -->
+    <div id="completed-screen" class="hidden">
+      <div class="card welcome">
+        <h1>Session Complete</h1>
+        <p>You've already completed this discovery session. Thank you for your input!</p>
+      </div>
+    </div>
+
+    <!-- Quiz -->
+    <div id="quiz-screen" class="hidden">
+      <div class="flex-between mb-4">
+        <h2>Discovery Questions</h2>
+        <span id="batch-indicator" class="text-sm text-muted"></span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+      </div>
+      <p class="progress-hint" id="progress-hint"></p>
+
+      <div id="questions-container"></div>
+
+      <div class="mt-4">
+        <button class="btn btn-primary btn-block" id="next-btn" onclick="submitAnswers()" disabled>
+          Next
+        </button>
+      </div>
+    </div>
+
+    <!-- Submit screen (when isComplete) -->
+    <div id="submit-screen" class="hidden">
+      <div class="card text-center">
+        <h2>Discovery Complete</h2>
+        <p class="text-muted mt-4">Thank you for answering all the questions. Click below to submit your responses and generate a summary.</p>
+        <button class="btn btn-primary mt-6" id="submit-btn" onclick="submitSession()">Submit Results</button>
+      </div>
+    </div>
+
+    <!-- Thank you -->
+    <div id="thankyou-screen" class="hidden">
+      <div class="card thank-you">
+        <h1>Thank You!</h1>
+        <p class="text-muted">Your responses have been submitted successfully. The team will review your input along with other stakeholders.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/session.js"></script>
+</body>
+</html>

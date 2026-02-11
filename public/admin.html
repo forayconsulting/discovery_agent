@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discovery Agent - Admin</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <!-- Nav (hidden until logged in) -->
+  <div id="nav" class="nav hidden">
+    <span class="nav-title">Discovery Agent</span>
+    <div class="flex gap-2">
+      <button class="btn btn-secondary btn-sm" onclick="showView('list')">Engagements</button>
+      <button class="btn btn-secondary btn-sm" onclick="showView('settings')">Settings</button>
+      <button class="btn btn-secondary btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <!-- Login -->
+  <div id="login-screen" class="container">
+    <div class="card" style="max-width: 400px; margin: 80px auto;">
+      <h2 class="text-center">Admin Login</h2>
+      <div id="login-error" class="error-message hidden"></div>
+      <div class="form-group mt-4">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="Enter admin password" onkeydown="if(event.key==='Enter')login()">
+      </div>
+      <button class="btn btn-primary btn-block" onclick="login()">Login</button>
+    </div>
+  </div>
+
+  <!-- Engagements List -->
+  <div id="list-screen" class="container-wide hidden">
+    <div class="flex-between mb-4">
+      <h1>Engagements</h1>
+      <button class="btn btn-primary" onclick="showView('create')">New Engagement</button>
+    </div>
+    <div id="engagements-list"></div>
+    <div id="engagements-loading" class="loading-container hidden">
+      <div class="spinner"></div>
+    </div>
+    <p id="engagements-empty" class="text-center text-muted mt-6 hidden">No engagements yet. Create one to get started.</p>
+  </div>
+
+  <!-- Create Engagement -->
+  <div id="create-screen" class="container hidden">
+    <h1 class="mb-4">New Engagement</h1>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchCreateTab('manual')">Manual</button>
+      <button class="tab" onclick="switchCreateTab('monday')">Monday.com Import</button>
+    </div>
+
+    <!-- Manual creation -->
+    <div id="create-manual" class="card">
+      <div class="form-group">
+        <label for="eng-name">Engagement Name *</label>
+        <input type="text" id="eng-name" placeholder="e.g., Acme Corp Digital Transformation">
+      </div>
+      <div class="form-group">
+        <label for="eng-description">Description</label>
+        <textarea id="eng-description" placeholder="Brief description of the engagement"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="eng-context">Project Context</label>
+        <textarea id="eng-context" rows="6" placeholder="Provide background context that will help the AI generate relevant discovery questions. Include project goals, known challenges, industry details, etc."></textarea>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-secondary" onclick="showView('list')">Cancel</button>
+        <button class="btn btn-primary" id="create-btn" onclick="createEngagement()">Create Engagement</button>
+      </div>
+    </div>
+
+    <!-- Monday.com import -->
+    <div id="create-monday" class="card hidden">
+      <div class="form-group">
+        <label>Search Monday.com Boards</label>
+        <div class="flex gap-2">
+          <input type="text" id="monday-search" placeholder="Search boards...">
+          <button class="btn btn-secondary" onclick="searchMonday()">Search</button>
+        </div>
+      </div>
+      <div id="monday-boards" class="mt-4"></div>
+      <div id="monday-items" class="mt-4 hidden"></div>
+      <div id="monday-preview" class="mt-4 hidden">
+        <h3>Import Preview</h3>
+        <div class="form-group mt-4">
+          <label for="monday-eng-name">Engagement Name</label>
+          <input type="text" id="monday-eng-name">
+        </div>
+        <div class="form-group">
+          <label>Imported Context</label>
+          <pre id="monday-context" class="summary-block" style="font-size:0.85rem;"></pre>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary" onclick="showView('list')">Cancel</button>
+          <button class="btn btn-primary" onclick="createFromMonday()">Create Engagement</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Engagement Detail -->
+  <div id="detail-screen" class="container-wide hidden">
+    <button class="btn btn-secondary btn-sm mb-4" onclick="showView('list')">&larr; Back</button>
+
+    <div id="detail-header"></div>
+
+    <div class="tabs mt-6">
+      <button class="tab active" onclick="switchDetailTab('sessions')">Sessions</button>
+      <button class="tab" onclick="switchDetailTab('aggregate')">Aggregate Summary</button>
+    </div>
+
+    <!-- Sessions tab -->
+    <div id="detail-sessions">
+      <div class="card mb-4">
+        <h3>Add Stakeholders</h3>
+        <div id="stakeholder-rows" class="mt-4"></div>
+        <div class="flex gap-2 mt-4">
+          <button class="btn btn-secondary btn-sm" onclick="addStakeholderRow()">+ Add Another</button>
+          <button class="btn btn-primary btn-sm" id="create-sessions-btn" onclick="createBatchSessions()">Create Sessions</button>
+        </div>
+        <div id="new-links" class="hidden mt-4"></div>
+      </div>
+
+      <div id="sessions-list"></div>
+    </div>
+
+    <!-- Aggregate tab -->
+    <div id="detail-aggregate" class="hidden"></div>
+
+    <!-- Session result modal -->
+    <div id="result-detail" class="hidden">
+      <button class="btn btn-secondary btn-sm mb-4" onclick="hideResult()">&larr; Back to sessions</button>
+      <div id="result-content"></div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div id="settings-screen" class="container hidden">
+    <h1 class="mb-4">Settings</h1>
+    <div class="card">
+      <h3>Monday.com API Key</h3>
+      <p class="text-sm text-muted mb-4">Configure your Monday.com API key to enable board imports.</p>
+      <div id="monday-key-status" class="mb-4"></div>
+      <div class="form-group">
+        <label for="monday-api-key">API Key</label>
+        <input type="password" id="monday-api-key" placeholder="Enter your Monday.com API key">
+      </div>
+      <button class="btn btn-primary" onclick="saveMondayKey()">Save API Key</button>
+      <span id="monday-save-status" class="text-sm" style="margin-left:12px;"></span>
+    </div>
+  </div>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,630 @@
+// Admin dashboard client logic
+
+const API_BASE = '/api/admin';
+let authToken = localStorage.getItem('admin_token');
+let currentEngagementId = null;
+let engagementData = null;
+
+// Helpers
+function apiHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${authToken}`,
+  };
+}
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { ...apiHeaders(), ...options.headers },
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem('admin_token');
+    authToken = null;
+    showView('login');
+    throw new Error('Unauthorized');
+  }
+
+  return res;
+}
+
+// Views
+function showView(view) {
+  const allScreens = ['login-screen', 'list-screen', 'create-screen', 'detail-screen', 'settings-screen'];
+  allScreens.forEach((id) => document.getElementById(id).classList.add('hidden'));
+  document.getElementById('nav').classList.toggle('hidden', view === 'login');
+
+  if (view === 'login') {
+    document.getElementById('login-screen').classList.remove('hidden');
+  } else if (view === 'list') {
+    document.getElementById('list-screen').classList.remove('hidden');
+    loadEngagements();
+  } else if (view === 'create') {
+    document.getElementById('create-screen').classList.remove('hidden');
+    // Reset form
+    document.getElementById('eng-name').value = '';
+    document.getElementById('eng-description').value = '';
+    document.getElementById('eng-context').value = '';
+  } else if (view === 'detail') {
+    document.getElementById('detail-screen').classList.remove('hidden');
+    loadEngagementDetail(currentEngagementId);
+  } else if (view === 'settings') {
+    document.getElementById('settings-screen').classList.remove('hidden');
+    loadMondayKeyStatus();
+  }
+}
+
+// Init
+if (authToken) {
+  showView('list');
+} else {
+  showView('login');
+}
+
+// Auth
+async function login() {
+  const password = document.getElementById('password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.classList.add('hidden');
+
+  try {
+    const res = await fetch(`${API_BASE}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+
+    if (!res.ok) {
+      errEl.textContent = 'Invalid password';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    const data = await res.json();
+    authToken = data.token;
+    localStorage.setItem('admin_token', authToken);
+    showView('list');
+  } catch (err) {
+    errEl.textContent = 'Login failed. Please try again.';
+    errEl.classList.remove('hidden');
+  }
+}
+
+function logout() {
+  localStorage.removeItem('admin_token');
+  authToken = null;
+  showView('login');
+}
+
+// Engagements list
+async function loadEngagements() {
+  const listEl = document.getElementById('engagements-list');
+  const loadingEl = document.getElementById('engagements-loading');
+  const emptyEl = document.getElementById('engagements-empty');
+
+  listEl.innerHTML = '';
+  loadingEl.classList.remove('hidden');
+  emptyEl.classList.add('hidden');
+
+  try {
+    const res = await apiFetch('/engagements');
+    const data = await res.json();
+    loadingEl.classList.add('hidden');
+
+    if (data.engagements.length === 0) {
+      emptyEl.classList.remove('hidden');
+      return;
+    }
+
+    data.engagements.forEach((eng) => {
+      const card = document.createElement('div');
+      card.className = 'engagement-card';
+      card.onclick = () => {
+        currentEngagementId = eng.id;
+        showView('detail');
+      };
+
+      card.innerHTML = `
+        <div>
+          <h3>${escapeHtml(eng.name)}</h3>
+          <div class="engagement-meta">
+            ${eng.session_count} session${eng.session_count !== '1' ? 's' : ''} &middot;
+            ${eng.completed_count} completed &middot;
+            Created ${formatDate(eng.created_at)}
+          </div>
+        </div>
+        <span style="color: var(--gray-400); font-size: 1.2rem;">&rsaquo;</span>
+      `;
+      listEl.appendChild(card);
+    });
+  } catch (err) {
+    loadingEl.classList.add('hidden');
+  }
+}
+
+// Create engagement
+function switchCreateTab(tab) {
+  document.querySelectorAll('#create-screen .tab').forEach((t) => t.classList.remove('active'));
+  if (tab === 'manual') {
+    document.querySelectorAll('#create-screen .tab')[0].classList.add('active');
+    document.getElementById('create-manual').classList.remove('hidden');
+    document.getElementById('create-monday').classList.add('hidden');
+  } else {
+    document.querySelectorAll('#create-screen .tab')[1].classList.add('active');
+    document.getElementById('create-manual').classList.add('hidden');
+    document.getElementById('create-monday').classList.remove('hidden');
+  }
+}
+
+async function createEngagement() {
+  const name = document.getElementById('eng-name').value.trim();
+  const description = document.getElementById('eng-description').value.trim();
+  const context = document.getElementById('eng-context').value.trim();
+
+  if (!name) {
+    alert('Engagement name is required.');
+    return;
+  }
+
+  const btn = document.getElementById('create-btn');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+
+  try {
+    const res = await apiFetch('/engagements', {
+      method: 'POST',
+      body: JSON.stringify({ name, description, context }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.error || 'Failed to create engagement.');
+      return;
+    }
+
+    const data = await res.json();
+    currentEngagementId = data.engagement.id;
+    showView('detail');
+  } catch (err) {
+    alert('Failed to create engagement.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create Engagement';
+  }
+}
+
+// Monday.com
+async function searchMonday() {
+  const term = document.getElementById('monday-search').value.trim();
+  const boardsEl = document.getElementById('monday-boards');
+  const itemsEl = document.getElementById('monday-items');
+  const previewEl = document.getElementById('monday-preview');
+
+  itemsEl.classList.add('hidden');
+  previewEl.classList.add('hidden');
+
+  try {
+    const res = await apiFetch(`/monday/search?term=${encodeURIComponent(term)}`);
+    const data = await res.json();
+
+    if (data.boards.length === 0) {
+      boardsEl.innerHTML = '<p class="text-muted">No boards found.</p>';
+      return;
+    }
+
+    boardsEl.innerHTML = '<h3>Boards</h3>' + data.boards.map((b) => `
+      <div class="engagement-card" style="margin-top:8px;" onclick="loadBoardItems('${b.id}')">
+        <span>${escapeHtml(b.name)}</span>
+        <span style="color:var(--gray-400);">&rsaquo;</span>
+      </div>
+    `).join('');
+  } catch (err) {
+    boardsEl.innerHTML = '<p class="text-muted">Failed to search Monday.com. Check API key.</p>';
+  }
+}
+
+async function loadBoardItems(boardId) {
+  const itemsEl = document.getElementById('monday-items');
+  itemsEl.classList.remove('hidden');
+  itemsEl.innerHTML = '<div class="loading-container"><div class="spinner"></div></div>';
+
+  try {
+    const res = await apiFetch(`/monday/boards/${boardId}/items`);
+    const data = await res.json();
+
+    if (data.items.length === 0) {
+      itemsEl.innerHTML = '<p class="text-muted">No items in this board.</p>';
+      return;
+    }
+
+    itemsEl.innerHTML = '<h3>Items</h3>' + data.items.map((item) => `
+      <div class="engagement-card" style="margin-top:8px;" onclick="importMondayItem('${item.id}', '${boardId}')">
+        <span>${escapeHtml(item.name)}</span>
+        <span style="color:var(--gray-400);">&rsaquo;</span>
+      </div>
+    `).join('');
+  } catch (err) {
+    itemsEl.innerHTML = '<p class="text-muted">Failed to load items.</p>';
+  }
+}
+
+let mondayImportData = null;
+
+async function importMondayItem(itemId, boardId) {
+  const previewEl = document.getElementById('monday-preview');
+  previewEl.classList.remove('hidden');
+
+  try {
+    const res = await apiFetch(`/monday/item/${itemId}`);
+    const data = await res.json();
+
+    mondayImportData = {
+      name: data.item.name,
+      context: data.context,
+      mondayItemId: itemId,
+      mondayBoardId: boardId,
+    };
+
+    document.getElementById('monday-eng-name').value = data.item.name;
+    document.getElementById('monday-context').textContent = data.context;
+  } catch (err) {
+    previewEl.innerHTML = '<p class="text-muted">Failed to load item details.</p>';
+  }
+}
+
+async function createFromMonday() {
+  if (!mondayImportData) return;
+
+  const name = document.getElementById('monday-eng-name').value.trim() || mondayImportData.name;
+
+  try {
+    const res = await apiFetch('/engagements', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        context: mondayImportData.context,
+        mondayItemId: mondayImportData.mondayItemId,
+        mondayBoardId: mondayImportData.mondayBoardId,
+      }),
+    });
+
+    if (!res.ok) {
+      alert('Failed to create engagement.');
+      return;
+    }
+
+    const data = await res.json();
+    currentEngagementId = data.engagement.id;
+    showView('detail');
+  } catch (err) {
+    alert('Failed to create engagement.');
+  }
+}
+
+// Engagement detail
+async function loadEngagementDetail(id) {
+  const headerEl = document.getElementById('detail-header');
+  const sessionsEl = document.getElementById('sessions-list');
+
+  headerEl.innerHTML = '<div class="loading-container"><div class="spinner"></div></div>';
+
+  try {
+    const res = await apiFetch(`/engagements/${id}`);
+    const data = await res.json();
+    engagementData = data.engagement;
+
+    headerEl.innerHTML = `
+      <h1>${escapeHtml(engagementData.name)}</h1>
+      ${engagementData.description ? `<p class="subtitle">${escapeHtml(engagementData.description)}</p>` : ''}
+      ${engagementData.context ? `<details class="mt-4"><summary class="text-sm text-muted" style="cursor:pointer;">View project context</summary><pre class="summary-block" style="font-size:0.85rem;">${escapeHtml(engagementData.context)}</pre></details>` : ''}
+    `;
+
+    initStakeholderForm();
+    renderSessions();
+    renderAggregate();
+  } catch (err) {
+    headerEl.innerHTML = '<p class="text-muted">Failed to load engagement.</p>';
+  }
+}
+
+function switchDetailTab(tab) {
+  document.querySelectorAll('#detail-screen .tab').forEach((t) => t.classList.remove('active'));
+  document.getElementById('detail-sessions').classList.add('hidden');
+  document.getElementById('detail-aggregate').classList.add('hidden');
+  document.getElementById('result-detail').classList.add('hidden');
+
+  if (tab === 'sessions') {
+    document.querySelectorAll('#detail-screen .tab')[0].classList.add('active');
+    document.getElementById('detail-sessions').classList.remove('hidden');
+  } else {
+    document.querySelectorAll('#detail-screen .tab')[1].classList.add('active');
+    document.getElementById('detail-aggregate').classList.remove('hidden');
+  }
+}
+
+function renderSessions() {
+  const sessionsEl = document.getElementById('sessions-list');
+  const sessions = engagementData.sessions || [];
+
+  if (sessions.length === 0) {
+    sessionsEl.innerHTML = '<p class="text-muted text-center mt-4">No sessions yet. Add a stakeholder above.</p>';
+    return;
+  }
+
+  const statusLabels = { pending: 'Not Started', in_progress: 'In Progress', completed: 'Completed' };
+  const statusClasses = { pending: 'pending', in_progress: 'in-progress', completed: 'completed' };
+
+  sessionsEl.innerHTML = '<div class="card">' + sessions.map((s) => {
+    const label = statusLabels[s.status] || s.status;
+    const cls = statusClasses[s.status] || s.status;
+    const badge = `<span class="badge badge-${cls}">${label}</span>`;
+    const viewBtn = s.status === 'completed'
+      ? `<button class="btn btn-secondary btn-sm" onclick="viewResult('${s.id}')">View Results</button>`
+      : `<button class="btn btn-secondary btn-sm" onclick="copySessionLink('${s.token}')">Copy Link</button>`;
+
+    return `
+      <div class="session-row">
+        <div>
+          <strong>${escapeHtml(s.stakeholder_name)}</strong>
+          ${s.stakeholder_role ? `<span class="text-sm text-muted"> &middot; ${escapeHtml(s.stakeholder_role)}</span>` : ''}
+          <br>${badge}
+        </div>
+        <div>${viewBtn}</div>
+      </div>
+    `;
+  }).join('') + '</div>';
+}
+
+// Batch stakeholder creation
+let stakeholderRowId = 0;
+
+function addStakeholderRow() {
+  const container = document.getElementById('stakeholder-rows');
+  const id = stakeholderRowId++;
+  const row = document.createElement('div');
+  row.className = 'flex gap-2 mb-4';
+  row.style.flexWrap = 'wrap';
+  row.setAttribute('data-row-id', id);
+  row.innerHTML = `
+    <div class="form-group" style="flex:1;min-width:140px;">
+      ${id === 0 ? '<label>Name *</label>' : ''}
+      <input type="text" class="sh-name" placeholder="Full name">
+    </div>
+    <div class="form-group" style="flex:1;min-width:140px;">
+      ${id === 0 ? '<label>Email</label>' : ''}
+      <input type="email" class="sh-email" placeholder="email@example.com">
+    </div>
+    <div class="form-group" style="flex:1;min-width:140px;">
+      ${id === 0 ? '<label>Role</label>' : ''}
+      <input type="text" class="sh-role" placeholder="e.g., VP of Ops">
+    </div>
+    ${id > 0 ? `<button class="btn btn-secondary btn-sm" style="align-self:center;" onclick="removeStakeholderRow(${id})">&times;</button>` : '<div style="width:38px;"></div>'}
+  `;
+  container.appendChild(row);
+}
+
+function removeStakeholderRow(id) {
+  const row = document.querySelector(`[data-row-id="${id}"]`);
+  if (row) row.remove();
+}
+
+function initStakeholderForm() {
+  const container = document.getElementById('stakeholder-rows');
+  container.innerHTML = '';
+  stakeholderRowId = 0;
+  document.getElementById('new-links').classList.add('hidden');
+  document.getElementById('new-links').innerHTML = '';
+  addStakeholderRow();
+}
+
+async function createBatchSessions() {
+  const rows = document.querySelectorAll('#stakeholder-rows [data-row-id]');
+  const stakeholders = [];
+
+  rows.forEach((row) => {
+    const name = row.querySelector('.sh-name').value.trim();
+    const email = row.querySelector('.sh-email').value.trim();
+    const role = row.querySelector('.sh-role').value.trim();
+    if (name) {
+      stakeholders.push({ name, email: email || undefined, role: role || undefined });
+    }
+  });
+
+  if (stakeholders.length === 0) {
+    alert('At least one stakeholder name is required.');
+    return;
+  }
+
+  const btn = document.getElementById('create-sessions-btn');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+
+  try {
+    const res = await apiFetch(`/engagements/${currentEngagementId}/sessions/batch`, {
+      method: 'POST',
+      body: JSON.stringify({ stakeholders }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.error || 'Failed to create sessions.');
+      return;
+    }
+
+    const data = await res.json();
+
+    // Show all links
+    const linksEl = document.getElementById('new-links');
+    linksEl.classList.remove('hidden');
+    linksEl.innerHTML = '<h4 style="margin-bottom:8px;">Session Links Created</h4>' +
+      data.sessions.map((s) => `
+        <div class="link-display" style="margin-bottom:4px;">
+          <span style="min-width:120px;font-weight:500;">${escapeHtml(s.session.stakeholder_name)}</span>
+          <code style="flex:1;">${s.shareableLink}</code>
+          <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText('${s.shareableLink}')">Copy</button>
+        </div>
+      `).join('');
+
+    // Reset form and reload sessions
+    initStakeholderForm();
+    loadEngagementDetail(currentEngagementId);
+  } catch (err) {
+    alert('Failed to create sessions.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create Sessions';
+  }
+}
+
+function copySessionLink(token) {
+  const url = `${window.location.origin}/session.html?token=${token}`;
+  navigator.clipboard.writeText(url);
+  alert('Link copied to clipboard!');
+}
+
+// View result
+async function viewResult(sessionId) {
+  document.getElementById('detail-sessions').classList.add('hidden');
+  const resultEl = document.getElementById('result-detail');
+  const contentEl = document.getElementById('result-content');
+  resultEl.classList.remove('hidden');
+
+  // Find result from engagement data
+  const result = engagementData.results?.find((r) => r.session_id === sessionId);
+  const session = engagementData.sessions?.find((s) => s.id === sessionId);
+
+  if (!result) {
+    contentEl.innerHTML = '<p class="text-muted">No results found.</p>';
+    return;
+  }
+
+  const answers = result.answers_structured || [];
+
+  contentEl.innerHTML = `
+    <div class="card">
+      <h2>${escapeHtml(session?.stakeholder_name || 'Stakeholder')}</h2>
+      ${session?.stakeholder_role ? `<p class="subtitle">${escapeHtml(session.stakeholder_role)}</p>` : ''}
+      <p class="text-sm text-muted">Completed ${formatDate(result.created_at)}</p>
+    </div>
+
+    <div class="card">
+      <h3>AI Summary</h3>
+      <div class="summary-block">${escapeHtml(result.ai_summary)}</div>
+    </div>
+
+    <div class="card">
+      <h3>Full Q&A History</h3>
+      ${answers.map((a, i) => `
+        <div style="padding:12px 0;${i < answers.length - 1 ? 'border-bottom:1px solid var(--gray-100);' : ''}">
+          <p class="text-sm" style="font-weight:500;">${escapeHtml(a.questionText)}</p>
+          <p class="text-sm text-muted" style="margin-top:4px;">
+            ${a.noneOfTheAbove ? 'None of the above' : a.selectedLabels.join(', ')}${a.customText ? `<br><em>Other: "${escapeHtml(a.customText)}"</em>` : ''}
+          </p>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function hideResult() {
+  document.getElementById('result-detail').classList.add('hidden');
+  document.getElementById('detail-sessions').classList.remove('hidden');
+}
+
+// Aggregate view
+function renderAggregate() {
+  const el = document.getElementById('detail-aggregate');
+  const results = engagementData.results || [];
+
+  if (results.length === 0) {
+    el.innerHTML = '<p class="text-muted text-center mt-4">No completed sessions yet.</p>';
+    return;
+  }
+
+  const summaries = results.map((r) => {
+    const session = engagementData.sessions?.find((s) => s.id === r.session_id);
+    return `
+      <div class="card">
+        <h3>${escapeHtml(session?.stakeholder_name || 'Stakeholder')}</h3>
+        ${session?.stakeholder_role ? `<p class="subtitle">${escapeHtml(session.stakeholder_role)}</p>` : ''}
+        <div class="summary-block">${escapeHtml(r.ai_summary)}</div>
+      </div>
+    `;
+  });
+
+  el.innerHTML = `
+    <div class="card">
+      <h3>Combined Discovery Results</h3>
+      <p class="text-sm text-muted">${results.length} completed session${results.length !== 1 ? 's' : ''}</p>
+    </div>
+    ${summaries.join('')}
+  `;
+}
+
+// Utilities
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Settings - Monday.com API Key
+async function loadMondayKeyStatus() {
+  const statusEl = document.getElementById('monday-key-status');
+  try {
+    const res = await apiFetch('/settings/monday');
+    const data = await res.json();
+    if (data.configured) {
+      const sourceLabel = data.source === 'admin' ? 'Set via admin panel' : 'Set via environment variable';
+      statusEl.innerHTML = `<span class="badge badge-completed">Configured</span> <span class="text-sm text-muted">${sourceLabel}</span>`;
+    } else {
+      statusEl.innerHTML = '<span class="badge badge-pending">Not configured</span>';
+    }
+  } catch (err) {
+    statusEl.innerHTML = '<span class="text-muted">Unable to check status</span>';
+  }
+}
+
+async function saveMondayKey() {
+  const apiKey = document.getElementById('monday-api-key').value.trim();
+  const statusEl = document.getElementById('monday-save-status');
+
+  if (!apiKey) {
+    statusEl.textContent = 'Please enter an API key.';
+    statusEl.style.color = 'var(--error)';
+    return;
+  }
+
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = 'var(--gray-400)';
+
+  try {
+    const res = await apiFetch('/settings/monday', {
+      method: 'POST',
+      body: JSON.stringify({ apiKey }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      statusEl.textContent = err.error || 'Failed to save.';
+      statusEl.style.color = 'var(--error)';
+      return;
+    }
+
+    statusEl.textContent = 'Saved!';
+    statusEl.style.color = 'var(--success, #22c55e)';
+    document.getElementById('monday-api-key').value = '';
+    loadMondayKeyStatus();
+  } catch (err) {
+    statusEl.textContent = 'Failed to save.';
+    statusEl.style.color = 'var(--error)';
+  }
+}
