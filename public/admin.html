@@ -50,6 +50,7 @@
     <div class="tabs">
       <button class="tab active" onclick="switchCreateTab('manual')">Manual</button>
       <button class="tab" onclick="switchCreateTab('monday')">Monday.com Import</button>
+      <button class="tab" onclick="switchCreateTab('document')">Document Upload</button>
     </div>
 
     <!-- Manual creation -->
@@ -97,6 +98,30 @@
           <button class="btn btn-secondary" onclick="showView('list')">Cancel</button>
           <button class="btn btn-primary" onclick="createFromMonday()">Create Engagement</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Document upload -->
+    <div id="create-document" class="card hidden">
+      <div class="form-group">
+        <label for="doc-eng-name">Engagement Name *</label>
+        <input type="text" id="doc-eng-name" placeholder="e.g., Acme Corp Digital Transformation">
+      </div>
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
+        <input type="file" id="file-input" multiple accept=".pdf,.txt,.text" style="display:none" onchange="handleFileSelect(this.files)">
+        <p><strong>Drop files here</strong> or click to browse</p>
+        <p class="text-sm text-muted">PDF and text files, up to 10MB each</p>
+      </div>
+      <div id="file-list" class="mt-4"></div>
+      <div id="extraction-status" class="mt-4 hidden">
+        <div class="summary-generating">
+          <div class="spinner"></div>
+          <p class="text-muted" id="extraction-status-text">Uploading documents...</p>
+        </div>
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button class="btn btn-secondary" onclick="showView('list')">Cancel</button>
+        <button class="btn btn-primary" id="doc-upload-btn" onclick="createFromDocuments()">Upload & Extract</button>
       </div>
     </div>
   </div>

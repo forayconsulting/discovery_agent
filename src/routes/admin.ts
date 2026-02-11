@@ -332,4 +332,133 @@ admin.post('/sessions/:sessionId/retry-summary', async (c) => {
   return c.json({ summary: summaryResult.summary });
 });
 
+// POST /api/admin/engagements/:id/documents — upload documents
+admin.post('/engagements/:id/documents', async (c) => {
+  const engagementId = c.req.param('id');
+
+  const engagement = await db.getEngagement(c.env.HYPERDRIVE, engagementId);
+  if (!engagement) {
+    return c.json({ error: 'Engagement not found' }, 404);
+  }
+
+  const formData = await c.req.formData();
+  // Workers types declare getAll as string[], but multipart uploads return File objects at runtime
+  const files = formData.getAll('files') as unknown as (File | string)[];
+
+  if (!files || files.length === 0) {
+    return c.json({ error: 'No files uploaded' }, 400);
+  }
+
+  const maxSize = 10 * 1024 * 1024; // 10MB
+  const allowedTypes = ['application/pdf', 'text/plain'];
+  const documents = [];
+
+  for (const file of files) {
+    if (typeof file === 'string') continue;
+
+    // Validate type
+    const isAllowed = allowedTypes.includes(file.type) || file.name.endsWith('.txt') || file.name.endsWith('.text');
+    if (!isAllowed) {
+      return c.json({ error: `Unsupported file type: ${file.name}` }, 400);
+    }
+
+    // Validate size
+    if (file.size > maxSize) {
+      return c.json({ error: `File too large (max 10MB): ${file.name}` }, 400);
+    }
+
+    // Upload to R2
+    const r2Key = `engagements/${engagementId}/${crypto.randomUUID()}_${file.name}`;
+    const arrayBuffer = await file.arrayBuffer();
+    await c.env.DOCUMENTS_R2.put(r2Key, arrayBuffer, {
+      httpMetadata: { contentType: file.type || 'application/octet-stream' },
+    });
+
+    // Save metadata to DB
+    const doc = await db.createEngagementDocument(c.env.HYPERDRIVE, {
+      engagementId,
+      filename: file.name,
+      contentType: file.type || 'text/plain',
+      sizeBytes: file.size,
+      r2Key,
+    });
+
+    documents.push(doc);
+  }
+
+  return c.json({ documents }, 201);
+});
+
+// POST /api/admin/engagements/:id/documents/extract — trigger AI extraction
+admin.post('/engagements/:id/documents/extract', async (c) => {
+  const engagementId = c.req.param('id');
+
+  const engagement = await db.getEngagement(c.env.HYPERDRIVE, engagementId);
+  if (!engagement) {
+    return c.json({ error: 'Engagement not found' }, 404);
+  }
+
+  const documents = await db.getEngagementDocuments(c.env.HYPERDRIVE, engagementId);
+  if (documents.length === 0) {
+    return c.json({ error: 'No documents found for this engagement' }, 400);
+  }
+
+  // Guard against concurrent extraction
+  const processing = documents.some((d: any) => d.processing_status === 'processing');
+  if (processing) {
+    return c.json({ error: 'Extraction already in progress' }, 409);
+  }
+
+  // Fire-and-forget
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        // Mark all docs as processing
+        for (const doc of documents) {
+          await db.updateDocumentStatus(c.env.HYPERDRIVE, doc.id, 'processing');
+        }
+
+        // Fetch file data from R2
+        const docData: Array<{ filename: string; contentType: string; data: ArrayBuffer }> = [];
+        for (const doc of documents) {
+          const obj = await c.env.DOCUMENTS_R2.get(doc.r2_key);
+          if (obj) {
+            docData.push({
+              filename: doc.filename,
+              contentType: doc.content_type,
+              data: await obj.arrayBuffer(),
+            });
+          }
+        }
+
+        // Call Claude for extraction
+        const result = await claude.extractContextFromDocuments(c.env.ANTHROPIC_API_KEY, docData);
+
+        // Update engagement with extracted data
+        await db.updateEngagementFromDocuments(c.env.HYPERDRIVE, engagementId, result.description, result.context);
+
+        // Mark all docs as completed
+        for (const doc of documents) {
+          await db.updateDocumentStatus(c.env.HYPERDRIVE, doc.id, 'completed');
+        }
+      } catch (err) {
+        console.error('Document extraction failed:', err);
+        // Mark all docs as failed
+        for (const doc of documents) {
+          await db.updateDocumentStatus(c.env.HYPERDRIVE, doc.id, 'failed', (err as Error).message);
+        }
+      }
+    })()
+  );
+
+  return c.json({ extracting: true });
+});
+
+// GET /api/admin/engagements/:id/documents — list documents
+admin.get('/engagements/:id/documents', async (c) => {
+  const engagementId = c.req.param('id');
+  const documents = await db.getEngagementDocuments(c.env.HYPERDRIVE, engagementId);
+  return c.json({ documents });
+});
+
 export default admin;

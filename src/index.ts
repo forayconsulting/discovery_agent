@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import type { KVNamespace, Hyperdrive } from '@cloudflare/workers-types';
+import type { KVNamespace, Hyperdrive, R2Bucket } from '@cloudflare/workers-types';
 import api from './routes/api';
 import admin from './routes/admin';
 
@@ -10,6 +10,7 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   ADMIN_PASSWORD: string;
   MONDAY_API_KEY?: string;
+  DOCUMENTS_R2: R2Bucket;
 }
 
 const app = new Hono<{ Bindings: Env }>();

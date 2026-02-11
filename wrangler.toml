@@ -13,3 +13,7 @@ id = "d7bfb3829df04578aa77a967e984f590"
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "a871481c4d5a4c789d2a48879cf3ca9c"
+
+[[r2_buckets]]
+binding = "DOCUMENTS_R2"
+bucket_name = "discovery-documents"

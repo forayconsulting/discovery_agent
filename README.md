@@ -7,7 +7,8 @@ AI-powered stakeholder discovery tool for consulting engagements. Admins create 
 - **Runtime:** Cloudflare Workers (Hono framework)
 - **Database:** PostgreSQL on Railway, accessed via Cloudflare Hyperdrive
 - **Session Cache:** Cloudflare KV (fast) with PostgreSQL fallback (durable)
-- **AI:** Anthropic Claude API for question generation and summarization
+- **AI:** Anthropic Claude API for question generation, summarization, and document extraction
+- **Storage:** Cloudflare R2 for uploaded documents (SOWs, briefs, assessments)
 - **Frontend:** Static HTML/CSS/JS served via Cloudflare Workers Assets
 
 ## Live URL
@@ -21,9 +22,9 @@ src/
   index.ts              # App entry, Env bindings, route mounting
   routes/
     api.ts              # Stakeholder session API (start, answer, submit)
-    admin.ts            # Admin API (engagements, sessions, settings, Monday.com)
+    admin.ts            # Admin API (engagements, sessions, documents, settings, Monday.com)
   services/
-    claude.ts           # Claude API integration (batch generation, summaries)
+    claude.ts           # Claude API integration (batch generation, summaries, document extraction)
     db.ts               # PostgreSQL queries via Hyperdrive
     monday.ts           # Monday.com API client
     session.ts          # KV session/config management
@@ -39,12 +40,14 @@ migrations/
   001_initial.sql       # Core tables: engagements, sessions, discovery_results
   002_conversation_state.sql  # Durable session state column
   003_steering_and_overview.sql  # Per-session steering + engagement overview
+  004_engagement_documents.sql   # Document upload tracking table
 wrangler.toml           # Cloudflare Workers configuration
 ```
 
 ## Key Features
 
-- **Admin Dashboard:** Create engagements, batch-create stakeholder sessions, manage Monday.com API key via settings UI
+- **Admin Dashboard:** Create engagements (manually, from Monday.com, or from uploaded documents), batch-create stakeholder sessions, manage settings
+- **Document Upload & Extraction:** Upload SOWs, project briefs, or prior assessments (PDF/text, up to 10MB each) and have Claude auto-generate the engagement Description and Context fields. Documents are stored in R2, extraction runs asynchronously via `waitUntil`, and the admin UI polls for completion
 - **Monday.com Integration:** Import engagement context from Monday.com boards/items (API key configurable via admin panel or env var)
 - **AI-Driven Discovery:** Claude generates 2-4 tailored multiple-choice questions per batch, adapting based on prior answers. Questions are open-ended and non-leading, following a first-principles approach that lets the stakeholder's genuine perspective emerge
 - **Session Steering:** Admins can request AI-suggested focus areas per stakeholder (based on role and engagement context), select from them, and inject custom steering that guides — but doesn't force — the discovery questions
@@ -63,6 +66,7 @@ wrangler.toml           # Cloudflare Workers configuration
 |---------|---------|
 | Cloudflare Workers | Application runtime |
 | Cloudflare KV (`SESSION_KV`) | Session state cache, admin tokens, config values |
+| Cloudflare R2 (`DOCUMENTS_R2`) | Uploaded document storage |
 | Cloudflare Hyperdrive | Connection pooling to PostgreSQL |
 | Railway PostgreSQL | Persistent data store |
 
@@ -88,4 +92,5 @@ Run against the Railway PostgreSQL instance:
 psql "$DATABASE_PUBLIC_URL" -f migrations/001_initial.sql
 psql "$DATABASE_PUBLIC_URL" -f migrations/002_conversation_state.sql
 psql "$DATABASE_PUBLIC_URL" -f migrations/003_steering_and_overview.sql
+psql "$DATABASE_PUBLIC_URL" -f migrations/004_engagement_documents.sql
 ```

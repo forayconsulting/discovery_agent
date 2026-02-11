@@ -6,6 +6,7 @@ let currentEngagementId = null;
 let engagementData = null;
 let summaryPollTimer = null;
 let overviewPollTimer = null;
+let selectedFiles = [];
 
 // Helpers
 function apiHeaders() {
@@ -50,6 +51,10 @@ function showView(view) {
     document.getElementById('eng-name').value = '';
     document.getElementById('eng-description').value = '';
     document.getElementById('eng-context').value = '';
+    document.getElementById('doc-eng-name').value = '';
+    selectedFiles = [];
+    renderFileList();
+    document.getElementById('extraction-status').classList.add('hidden');
   } else if (view === 'detail') {
     document.getElementById('detail-screen').classList.remove('hidden');
     loadEngagementDetail(currentEngagementId);
@@ -150,14 +155,19 @@ async function loadEngagements() {
 // Create engagement
 function switchCreateTab(tab) {
   document.querySelectorAll('#create-screen .tab').forEach((t) => t.classList.remove('active'));
+  document.getElementById('create-manual').classList.add('hidden');
+  document.getElementById('create-monday').classList.add('hidden');
+  document.getElementById('create-document').classList.add('hidden');
+
   if (tab === 'manual') {
     document.querySelectorAll('#create-screen .tab')[0].classList.add('active');
     document.getElementById('create-manual').classList.remove('hidden');
-    document.getElementById('create-monday').classList.add('hidden');
-  } else {
+  } else if (tab === 'monday') {
     document.querySelectorAll('#create-screen .tab')[1].classList.add('active');
-    document.getElementById('create-manual').classList.add('hidden');
     document.getElementById('create-monday').classList.remove('hidden');
+  } else {
+    document.querySelectorAll('#create-screen .tab')[2].classList.add('active');
+    document.getElementById('create-document').classList.remove('hidden');
   }
 }
 
@@ -304,6 +314,176 @@ async function createFromMonday() {
   } catch (err) {
     alert('Failed to create engagement.');
   }
+}
+
+// Document upload
+function handleFileSelect(files) {
+  const maxSize = 10 * 1024 * 1024; // 10MB
+  const allowedTypes = ['application/pdf', 'text/plain'];
+
+  for (const file of files) {
+    if (!allowedTypes.includes(file.type) && !file.name.endsWith('.txt') && !file.name.endsWith('.text')) {
+      alert(`"${file.name}" is not a supported file type. Please upload PDF or text files.`);
+      continue;
+    }
+    if (file.size > maxSize) {
+      alert(`"${file.name}" exceeds the 10MB size limit.`);
+      continue;
+    }
+    // Avoid duplicates
+    if (!selectedFiles.find((f) => f.name === file.name && f.size === file.size)) {
+      selectedFiles.push(file);
+    }
+  }
+  renderFileList();
+}
+
+function removeFile(index) {
+  selectedFiles.splice(index, 1);
+  renderFileList();
+}
+
+function renderFileList() {
+  const el = document.getElementById('file-list');
+  if (selectedFiles.length === 0) {
+    el.innerHTML = '';
+    return;
+  }
+
+  el.innerHTML = selectedFiles.map((f, i) => `
+    <div class="file-item">
+      <div class="file-info">
+        <span>${escapeHtml(f.name)}</span>
+        <span class="file-size">${formatFileSize(f.size)}</span>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="removeFile(${i})">&times;</button>
+    </div>
+  `).join('');
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// Drag and drop
+document.addEventListener('DOMContentLoaded', () => {
+  const dropzone = document.getElementById('dropzone');
+  if (!dropzone) return;
+
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('drag-over');
+  });
+
+  dropzone.addEventListener('dragleave', () => {
+    dropzone.classList.remove('drag-over');
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    handleFileSelect(e.dataTransfer.files);
+  });
+});
+
+async function createFromDocuments() {
+  const name = document.getElementById('doc-eng-name').value.trim();
+  if (!name) {
+    alert('Engagement name is required.');
+    return;
+  }
+  if (selectedFiles.length === 0) {
+    alert('Please upload at least one document.');
+    return;
+  }
+
+  const btn = document.getElementById('doc-upload-btn');
+  const statusEl = document.getElementById('extraction-status');
+  const statusText = document.getElementById('extraction-status-text');
+  btn.disabled = true;
+  statusEl.classList.remove('hidden');
+  statusText.textContent = 'Creating engagement...';
+
+  try {
+    // Step 1: Create engagement (no description/context yet)
+    const createRes = await apiFetch('/engagements', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+    if (!createRes.ok) {
+      const err = await createRes.json();
+      alert(err.error || 'Failed to create engagement.');
+      return;
+    }
+    const createData = await createRes.json();
+    const engagementId = createData.engagement.id;
+
+    // Step 2: Upload files via multipart FormData
+    statusText.textContent = 'Uploading documents...';
+    const formData = new FormData();
+    selectedFiles.forEach((f) => formData.append('files', f));
+
+    const uploadRes = await fetch(`${API_BASE}/engagements/${engagementId}/documents`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${authToken}` },
+      body: formData,
+    });
+    if (!uploadRes.ok) {
+      const err = await uploadRes.json();
+      alert(err.error || 'Failed to upload documents.');
+      return;
+    }
+
+    // Step 3: Trigger extraction (fire-and-forget on server)
+    statusText.textContent = 'Extracting context from documents...';
+    const extractRes = await apiFetch(`/engagements/${engagementId}/documents/extract`, {
+      method: 'POST',
+    });
+    if (!extractRes.ok) {
+      const err = await extractRes.json();
+      alert(err.error || 'Failed to start extraction.');
+      return;
+    }
+
+    // Step 4: Poll for completion
+    pollDocumentExtraction(engagementId);
+  } catch (err) {
+    alert('An error occurred. Please try again.');
+    statusEl.classList.add('hidden');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function pollDocumentExtraction(engagementId) {
+  const statusText = document.getElementById('extraction-status-text');
+  const statusEl = document.getElementById('extraction-status');
+
+  const poll = setInterval(async () => {
+    try {
+      const res = await apiFetch(`/engagements/${engagementId}/documents`);
+      const data = await res.json();
+      const docs = data.documents || [];
+
+      const allDone = docs.length > 0 && docs.every((d) => d.processing_status === 'completed' || d.processing_status === 'failed');
+      const anyFailed = docs.some((d) => d.processing_status === 'failed');
+
+      if (allDone) {
+        clearInterval(poll);
+        if (anyFailed) {
+          const failedDocs = docs.filter((d) => d.processing_status === 'failed');
+          alert(`Extraction completed with errors: ${failedDocs.map((d) => d.error_message || d.filename).join(', ')}`);
+        }
+        statusEl.classList.add('hidden');
+        currentEngagementId = engagementId;
+        showView('detail');
+      }
+    } catch (err) {
+      // Silently retry
+    }
+  }, 3000);
 }
 
 // Engagement detail

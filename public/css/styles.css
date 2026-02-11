@@ -580,6 +580,45 @@ h3 { font-size: 1.1rem; font-weight: 600; color: var(--gray-800); }
   accent-color: var(--primary);
 }
 
+/* Dropzone */
+.dropzone {
+  border: 2px dashed var(--gray-300);
+  border-radius: var(--radius);
+  padding: 32px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dropzone:hover,
+.dropzone.drag-over {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.file-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+}
+
+.file-item .file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-item .file-size {
+  color: var(--gray-400);
+  font-size: 0.8rem;
+}
+
 @media (max-width: 640px) {
   .container { padding: 16px 12px; }
   h1 { font-size: 1.4rem; }

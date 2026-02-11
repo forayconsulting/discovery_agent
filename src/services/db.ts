@@ -288,3 +288,79 @@ export async function updateEngagementOverview(hyperdrive: Hyperdrive, engagemen
     await client.end();
   }
 }
+
+// Document operations
+
+export async function createEngagementDocument(
+  hyperdrive: Hyperdrive,
+  data: {
+    engagementId: string;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+    r2Key: string;
+  }
+) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    const result = await client.query(
+      `INSERT INTO engagement_documents (engagement_id, filename, content_type, size_bytes, r2_key)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [data.engagementId, data.filename, data.contentType, data.sizeBytes, data.r2Key]
+    );
+    return result.rows[0];
+  } finally {
+    await client.end();
+  }
+}
+
+export async function getEngagementDocuments(hyperdrive: Hyperdrive, engagementId: string) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    const result = await client.query(
+      'SELECT * FROM engagement_documents WHERE engagement_id = $1 ORDER BY created_at DESC',
+      [engagementId]
+    );
+    return result.rows;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function updateDocumentStatus(
+  hyperdrive: Hyperdrive,
+  documentId: string,
+  status: string,
+  errorMessage?: string
+) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    await client.query(
+      'UPDATE engagement_documents SET processing_status = $1, error_message = $2 WHERE id = $3',
+      [status, errorMessage || null, documentId]
+    );
+  } finally {
+    await client.end();
+  }
+}
+
+export async function updateEngagementFromDocuments(
+  hyperdrive: Hyperdrive,
+  engagementId: string,
+  description: string,
+  context: string
+) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    await client.query(
+      'UPDATE engagements SET description = $1, context = $2 WHERE id = $3',
+      [description, context, engagementId]
+    );
+  } finally {
+    await client.end();
+  }
+}

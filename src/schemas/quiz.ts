@@ -184,3 +184,34 @@ export const engagementOverviewToolSchema = {
     required: ['overview'],
   },
 };
+
+export const documentExtractionToolSchema = {
+  name: 'extract_engagement_context',
+  description: 'Extract engagement description and context from uploaded documents (SOWs, project briefs, assessments).',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      description: {
+        type: 'string',
+        description: 'A concise description of the engagement based on the documents (2-3 sentences).',
+      },
+      context: {
+        type: 'string',
+        description: 'Detailed project context extracted from the documents. Include goals, scope, stakeholders, timelines, known challenges, and any other relevant background that would help an AI generate discovery questions.',
+      },
+      documentSummaries: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            filename: { type: 'string', description: 'The filename of the document' },
+            summary: { type: 'string', description: 'A brief summary of the document content' },
+          },
+          required: ['filename', 'summary'],
+        },
+        description: 'A brief summary for each uploaded document.',
+      },
+    },
+    required: ['description', 'context', 'documentSummaries'],
+  },
+};

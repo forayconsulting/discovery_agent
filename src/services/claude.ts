@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { quizBatchToolSchema, summaryToolSchema, steeringSuggestionsToolSchema, engagementOverviewToolSchema } from '../schemas/quiz';
+import { quizBatchToolSchema, summaryToolSchema, steeringSuggestionsToolSchema, engagementOverviewToolSchema, documentExtractionToolSchema } from '../schemas/quiz';
 import type { QuizBatch, QuizAnswer, ConversationState } from '../schemas/quiz';
 
 function buildSystemPrompt(engagementContext: string, stakeholderName: string, stakeholderRole?: string, steeringPrompt?: string): string {
@@ -225,4 +225,66 @@ export async function generateEngagementOverview(
   }
 
   return (toolUse.input as { overview: string }).overview;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunks: string[] = [];
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
+  }
+  return btoa(chunks.join(''));
+}
+
+export async function extractContextFromDocuments(
+  apiKey: string,
+  documents: Array<{ filename: string; contentType: string; data: ArrayBuffer }>
+): Promise<{ description: string; context: string; documentSummaries: Array<{ filename: string; summary: string }> }> {
+  const client = new Anthropic({ apiKey });
+
+  const contentBlocks: Anthropic.MessageParam['content'] = [];
+
+  for (const doc of documents) {
+    if (doc.contentType === 'application/pdf') {
+      contentBlocks.push({
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: 'application/pdf',
+          data: arrayBufferToBase64(doc.data),
+        },
+      } as any);
+    } else {
+      contentBlocks.push({
+        type: 'text',
+        text: `Document: ${doc.filename}\n\n${new TextDecoder().decode(doc.data)}`,
+      });
+    }
+  }
+
+  contentBlocks.push({
+    type: 'text',
+    text: 'Please extract the engagement description and detailed project context from these documents. Include goals, scope, stakeholders, timelines, known challenges, and any other relevant background.',
+  });
+
+  const response = await client.messages.create({
+    model: 'claude-opus-4-6',
+    max_tokens: 4096,
+    messages: [
+      {
+        role: 'user',
+        content: contentBlocks,
+      },
+    ],
+    tools: [documentExtractionToolSchema],
+    tool_choice: { type: 'tool', name: 'extract_engagement_context' },
+  });
+
+  const toolUse = response.content.find((block) => block.type === 'tool_use');
+  if (!toolUse || toolUse.type !== 'tool_use') {
+    throw new Error('Claude did not return a document extraction tool use response');
+  }
+
+  return toolUse.input as { description: string; context: string; documentSummaries: Array<{ filename: string; summary: string }> };
 }
