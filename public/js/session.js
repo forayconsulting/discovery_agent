@@ -349,7 +349,7 @@ async function submitAnswers() {
 async function submitSession() {
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Generating summary...';
+  btn.innerHTML = '<span class="spinner"></span> Submitting...';
 
   try {
     const res = await fetch(`${API_BASE}/session/${sessionToken}/submit`, {

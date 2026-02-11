@@ -47,6 +47,7 @@ wrangler.toml           # Cloudflare Workers configuration
 - **Monday.com Integration:** Import engagement context from Monday.com boards/items (API key configurable via admin panel or env var)
 - **AI-Driven Discovery:** Claude generates 2-4 tailored multiple-choice questions per batch, adapting based on prior answers
 - **"Other" Free-Text Option:** Every question includes an "Other" field for custom stakeholder input
+- **Fast Submit (Fire-and-Forget):** Answers are saved and the session is marked complete synchronously, returning instantly. AI summary generation runs in the background via `waitUntil`, so users never experience browser timeouts
 - **Session Resumability:** Conversation state is durably persisted to PostgreSQL, so sessions survive browser closures and can be resumed days later
 - **Batch Session Creation:** Admins can queue up multiple stakeholder sessions at once
 - **Status Tracking:** Sessions show "Not Started", "In Progress", or "Completed"

@@ -127,7 +127,7 @@ api.post('/session/:token/answer', async (c) => {
   return c.json({ batch });
 });
 
-// POST /api/session/:token/submit - Finalize session
+// POST /api/session/:token/submit - Finalize session (fire-and-forget for summary)
 api.post('/session/:token/submit', async (c) => {
   const token = c.req.param('token');
   const session = await db.getSessionByToken(c.env.HYPERDRIVE, token);
@@ -159,29 +159,27 @@ api.post('/session/:token/submit', async (c) => {
     // No body or invalid JSON is fine for submit
   }
 
-  // Generate summary
-  const summaryResult = await claude.generateSummary(c.env.ANTHROPIC_API_KEY, state);
-
-  // Save results to PostgreSQL
-  await db.saveDiscoveryResults(c.env.HYPERDRIVE, {
+  // PRIORITY: Save answers and mark session completed immediately
+  await db.saveAnswersAndComplete(c.env.HYPERDRIVE, {
     sessionId: session.id,
     rawConversation: state.messages,
     answersStructured: state.allAnswers,
-    aiSummary: summaryResult.summary,
   });
 
-  // Update session status
-  await db.updateSessionStatus(c.env.HYPERDRIVE, session.id, 'completed');
-
-  // Clean up KV and DB state
+  // Clean up KV
   await sessionService.deleteConversationState(c.env.SESSION_KV, session.id);
-  await db.saveConversationStateToDB(c.env.HYPERDRIVE, session.id, null);
 
-  return c.json({
-    summary: summaryResult.summary,
-    keyThemes: summaryResult.keyThemes,
-    priorityLevel: summaryResult.priorityLevel,
-  });
+  // Generate AI summary in the background (fire-and-forget via waitUntil)
+  c.executionCtx.waitUntil(
+    claude.generateSummary(c.env.ANTHROPIC_API_KEY, state)
+      .then((summaryResult) =>
+        db.updateDiscoverySummary(c.env.HYPERDRIVE, session.id, summaryResult.summary)
+      )
+      .catch((err) => console.error('Background summary generation failed:', err))
+  );
+
+  // Return immediately — user sees thank-you screen, answers are safe
+  return c.json({ submitted: true });
 });
 
 export default api;

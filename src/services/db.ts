@@ -148,34 +148,6 @@ export async function updateSessionStatus(
   }
 }
 
-export async function saveDiscoveryResults(
-  hyperdrive: Hyperdrive,
-  data: {
-    sessionId: string;
-    rawConversation: any;
-    answersStructured: any;
-    aiSummary: string;
-  }
-) {
-  const client = getClient(hyperdrive);
-  await client.connect();
-  try {
-    const result = await client.query(
-      `INSERT INTO discovery_results (session_id, raw_conversation, answers_structured, ai_summary)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [
-        data.sessionId,
-        JSON.stringify(data.rawConversation),
-        JSON.stringify(data.answersStructured),
-        data.aiSummary,
-      ]
-    );
-    return result.rows[0];
-  } finally {
-    await client.end();
-  }
-}
-
 export async function saveConversationStateToDB(
   hyperdrive: Hyperdrive,
   sessionId: string,
@@ -205,6 +177,51 @@ export async function getConversationStateFromDB(
       [sessionId]
     );
     return result.rows[0]?.conversation_state || null;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function saveAnswersAndComplete(
+  hyperdrive: Hyperdrive,
+  data: {
+    sessionId: string;
+    rawConversation: any;
+    answersStructured: any;
+  }
+) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    await client.query(
+      `INSERT INTO discovery_results (session_id, raw_conversation, answers_structured, ai_summary)
+       VALUES ($1, $2, $3, '')
+       ON CONFLICT (session_id) DO UPDATE SET
+         raw_conversation = EXCLUDED.raw_conversation,
+         answers_structured = EXCLUDED.answers_structured`,
+      [data.sessionId, JSON.stringify(data.rawConversation), JSON.stringify(data.answersStructured)]
+    );
+    await client.query(
+      `UPDATE sessions SET status = 'completed', completed_at = NOW(), conversation_state = NULL WHERE id = $1`,
+      [data.sessionId]
+    );
+  } finally {
+    await client.end();
+  }
+}
+
+export async function updateDiscoverySummary(
+  hyperdrive: Hyperdrive,
+  sessionId: string,
+  aiSummary: string
+) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    await client.query(
+      'UPDATE discovery_results SET ai_summary = $1 WHERE session_id = $2',
+      [aiSummary, sessionId]
+    );
   } finally {
     await client.end();
   }
