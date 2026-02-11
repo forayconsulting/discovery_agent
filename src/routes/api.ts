@@ -68,6 +68,7 @@ api.post('/session/:token/start', async (c) => {
     engagementContext: session.engagement_context || '',
     stakeholderName: session.stakeholder_name,
     stakeholderRole: session.stakeholder_role,
+    steeringPrompt: session.steering_prompt || undefined,
     messages: [],
     allAnswers: [],
     currentBatchNumber: 1,
@@ -169,12 +170,30 @@ api.post('/session/:token/submit', async (c) => {
   // Clean up KV
   await sessionService.deleteConversationState(c.env.SESSION_KV, session.id);
 
-  // Generate AI summary in the background (fire-and-forget via waitUntil)
+  // Generate AI summary in the background, then engagement overview (fire-and-forget via waitUntil)
   c.executionCtx.waitUntil(
     claude.generateSummary(c.env.ANTHROPIC_API_KEY, state)
-      .then((summaryResult) =>
-        db.updateDiscoverySummary(c.env.HYPERDRIVE, session.id, summaryResult.summary)
-      )
+      .then(async (summaryResult) => {
+        await db.updateDiscoverySummary(c.env.HYPERDRIVE, session.id, summaryResult.summary);
+        // Generate engagement overview if 2+ summaries exist
+        try {
+          const allSummaries = await db.getAllSummariesForEngagement(c.env.HYPERDRIVE, session.engagement_id);
+          if (allSummaries.length > 1) {
+            const overview = await claude.generateEngagementOverview(
+              c.env.ANTHROPIC_API_KEY,
+              session.engagement_context || '',
+              allSummaries.map((s: any) => ({
+                stakeholderName: s.stakeholder_name,
+                stakeholderRole: s.stakeholder_role,
+                summary: s.ai_summary,
+              }))
+            );
+            await db.updateEngagementOverview(c.env.HYPERDRIVE, session.engagement_id, overview);
+          }
+        } catch (err) {
+          console.error('Background overview generation failed:', err);
+        }
+      })
       .catch((err) => console.error('Background summary generation failed:', err))
   );
 

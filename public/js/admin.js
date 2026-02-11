@@ -4,6 +4,7 @@ const API_BASE = '/api/admin';
 let authToken = localStorage.getItem('admin_token');
 let currentEngagementId = null;
 let engagementData = null;
+let summaryPollTimer = null;
 
 // Helpers
 function apiHeaders() {
@@ -31,6 +32,7 @@ async function apiFetch(path, options = {}) {
 
 // Views
 function showView(view) {
+  stopSummaryPolling();
   const allScreens = ['login-screen', 'list-screen', 'create-screen', 'detail-screen', 'settings-screen'];
   allScreens.forEach((id) => document.getElementById(id).classList.add('hidden'));
   document.getElementById('nav').classList.toggle('hidden', view === 'login');
@@ -359,6 +361,11 @@ function renderSessions() {
     const label = statusLabels[s.status] || s.status;
     const cls = statusClasses[s.status] || s.status;
     const badge = `<span class="badge badge-${cls}">${label}</span>`;
+    const result = engagementData.results?.find((r) => r.session_id === s.id);
+    const summaryPending = s.status === 'completed' && (!result || !result.ai_summary);
+    const summaryHint = summaryPending
+      ? ' <span class="spinner spinner-inline"></span> <span class="text-sm text-muted">Generating summary...</span>'
+      : '';
     const viewBtn = s.status === 'completed'
       ? `<button class="btn btn-secondary btn-sm" onclick="viewResult('${s.id}')">View Results</button>`
       : `<button class="btn btn-secondary btn-sm" onclick="copySessionLink('${s.token}')">Copy Link</button>`;
@@ -368,7 +375,7 @@ function renderSessions() {
         <div>
           <strong>${escapeHtml(s.stakeholder_name)}</strong>
           ${s.stakeholder_role ? `<span class="text-sm text-muted"> &middot; ${escapeHtml(s.stakeholder_role)}</span>` : ''}
-          <br>${badge}
+          <br>${badge}${summaryHint}
         </div>
         <div>${viewBtn}</div>
       </div>
@@ -399,6 +406,7 @@ function addStakeholderRow() {
       ${id === 0 ? '<label>Role</label>' : ''}
       <input type="text" class="sh-role" placeholder="e.g., VP of Ops">
     </div>
+    <button class="btn btn-secondary btn-sm steering-btn" style="align-self:center;white-space:nowrap;" onclick="suggestSteering(${id})">Suggest Focus Areas</button>
     ${id > 0 ? `<button class="btn btn-secondary btn-sm" style="align-self:center;" onclick="removeStakeholderRow(${id})">&times;</button>` : '<div style="width:38px;"></div>'}
   `;
   container.appendChild(row);
@@ -426,8 +434,9 @@ async function createBatchSessions() {
     const name = row.querySelector('.sh-name').value.trim();
     const email = row.querySelector('.sh-email').value.trim();
     const role = row.querySelector('.sh-role').value.trim();
+    const steeringPrompt = getSteeringValue(row);
     if (name) {
-      stakeholders.push({ name, email: email || undefined, role: role || undefined });
+      stakeholders.push({ name, email: email || undefined, role: role || undefined, steeringPrompt });
     }
   });
 
@@ -477,6 +486,101 @@ async function createBatchSessions() {
   }
 }
 
+async function suggestSteering(rowId) {
+  const row = document.querySelector(`[data-row-id="${rowId}"]`);
+  if (!row) return;
+
+  const name = row.querySelector('.sh-name').value.trim();
+  const role = row.querySelector('.sh-role').value.trim();
+
+  if (!name) {
+    alert('Please enter a stakeholder name first.');
+    return;
+  }
+
+  const btn = row.querySelector('.steering-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading...'; }
+
+  try {
+    const res = await apiFetch(`/engagements/${currentEngagementId}/suggest-steering`, {
+      method: 'POST',
+      body: JSON.stringify({ stakeholderName: name, stakeholderRole: role }),
+    });
+
+    const data = await res.json();
+    const suggestions = data.suggestions || [];
+
+    // Build steering panel
+    let steeringEl = row.querySelector('.steering-panel');
+    if (!steeringEl) {
+      steeringEl = document.createElement('div');
+      steeringEl.className = 'steering-panel';
+      row.appendChild(steeringEl);
+    }
+
+    if (suggestions.length === 0) {
+      steeringEl.innerHTML = `
+        <div class="form-group" style="width:100%;">
+          <label>Custom Focus Areas</label>
+          <input type="text" class="sh-steering" placeholder="e.g., Process efficiency, team dynamics">
+        </div>
+      `;
+    } else {
+      steeringEl.innerHTML = `
+        <div style="width:100%;">
+          <label class="text-sm" style="font-weight:500;display:block;margin-bottom:6px;">Focus Areas</label>
+          ${suggestions.map((s, i) => `
+            <label class="steering-option">
+              <input type="checkbox" class="steering-check" value="${escapeHtml(s.prompt)}" data-label="${escapeHtml(s.label)}">
+              <span><strong>${escapeHtml(s.label)}</strong> — ${escapeHtml(s.prompt)}</span>
+            </label>
+          `).join('')}
+          <div class="form-group mt-4" style="margin-bottom:0;">
+            <input type="text" class="sh-steering-other" placeholder="Other focus area (optional)">
+          </div>
+        </div>
+      `;
+    }
+  } catch (err) {
+    // Allow manual entry on failure
+    let steeringEl = row.querySelector('.steering-panel');
+    if (!steeringEl) {
+      steeringEl = document.createElement('div');
+      steeringEl.className = 'steering-panel';
+      row.appendChild(steeringEl);
+    }
+    steeringEl.innerHTML = `
+      <div class="form-group" style="width:100%;">
+        <label>Custom Focus Areas</label>
+        <input type="text" class="sh-steering" placeholder="e.g., Process efficiency, team dynamics">
+      </div>
+    `;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Suggest Focus Areas'; }
+  }
+}
+
+function getSteeringValue(row) {
+  // Check for checkboxes
+  const checks = row.querySelectorAll('.steering-check:checked');
+  const parts = [];
+  checks.forEach((c) => parts.push(c.value));
+
+  // Check for "other" free text
+  const otherInput = row.querySelector('.sh-steering-other');
+  if (otherInput && otherInput.value.trim()) {
+    parts.push(otherInput.value.trim());
+  }
+
+  // Check for direct text input (fallback)
+  const directInput = row.querySelector('.sh-steering');
+  if (directInput && directInput.value.trim()) {
+    parts.push(directInput.value.trim());
+  }
+
+  return parts.join('; ') || undefined;
+}
+
 function copySessionLink(token) {
   const url = `${window.location.origin}/session.html?token=${token}`;
   navigator.clipboard.writeText(url);
@@ -485,6 +589,7 @@ function copySessionLink(token) {
 
 // View result
 async function viewResult(sessionId) {
+  stopSummaryPolling();
   document.getElementById('detail-sessions').classList.add('hidden');
   const resultEl = document.getElementById('result-detail');
   const contentEl = document.getElementById('result-content');
@@ -501,6 +606,20 @@ async function viewResult(sessionId) {
 
   const answers = result.answers_structured || [];
 
+  const summaryBlock = result.ai_summary
+    ? `<div class="card">
+        <h3>AI Summary</h3>
+        <div class="summary-block">${escapeHtml(result.ai_summary)}</div>
+      </div>`
+    : `<div class="card">
+        <h3>AI Summary</h3>
+        <div class="summary-generating">
+          <div class="spinner"></div>
+          <p class="text-muted">Summary is being generated...</p>
+          <button class="btn btn-secondary btn-sm mt-4" onclick="refreshSummary('${sessionId}')">Check Again</button>
+        </div>
+      </div>`;
+
   contentEl.innerHTML = `
     <div class="card">
       <h2>${escapeHtml(session?.stakeholder_name || 'Stakeholder')}</h2>
@@ -508,10 +627,7 @@ async function viewResult(sessionId) {
       <p class="text-sm text-muted">Completed ${formatDate(result.created_at)}</p>
     </div>
 
-    <div class="card">
-      <h3>AI Summary</h3>
-      <div class="summary-block">${escapeHtml(result.ai_summary)}</div>
-    </div>
+    ${summaryBlock}
 
     <div class="card">
       <h3>Full Q&A History</h3>
@@ -525,11 +641,59 @@ async function viewResult(sessionId) {
       `).join('')}
     </div>
   `;
+
+  // Start polling if summary not yet available
+  if (!result.ai_summary) {
+    startSummaryPolling(sessionId);
+  }
 }
 
 function hideResult() {
+  stopSummaryPolling();
   document.getElementById('result-detail').classList.add('hidden');
   document.getElementById('detail-sessions').classList.remove('hidden');
+}
+
+function stopSummaryPolling() {
+  if (summaryPollTimer) {
+    clearInterval(summaryPollTimer);
+    summaryPollTimer = null;
+  }
+}
+
+function startSummaryPolling(sessionId) {
+  stopSummaryPolling();
+  summaryPollTimer = setInterval(async () => {
+    try {
+      const res = await apiFetch(`/engagements/${currentEngagementId}`);
+      const data = await res.json();
+      engagementData = data.engagement;
+      const result = engagementData.results?.find((r) => r.session_id === sessionId);
+      if (result && result.ai_summary) {
+        stopSummaryPolling();
+        viewResult(sessionId);
+        renderSessions();
+      }
+    } catch (err) {
+      // Silently retry on next interval
+    }
+  }, 5000);
+}
+
+async function refreshSummary(sessionId) {
+  try {
+    const res = await apiFetch(`/engagements/${currentEngagementId}`);
+    const data = await res.json();
+    engagementData = data.engagement;
+    const result = engagementData.results?.find((r) => r.session_id === sessionId);
+    if (result && result.ai_summary) {
+      stopSummaryPolling();
+      viewResult(sessionId);
+      renderSessions();
+    }
+  } catch (err) {
+    // Ignore
+  }
 }
 
 // Aggregate view
@@ -542,24 +706,107 @@ function renderAggregate() {
     return;
   }
 
-  const summaries = results.map((r) => {
+  // Separate completed summaries from pending ones
+  const completedSummaries = results.filter((r) => r.ai_summary);
+  const pendingSummaries = results.filter((r) => !r.ai_summary);
+  const autoCollapse = completedSummaries.length > 2;
+
+  // Engagement overview section
+  const overviewHtml = engagementData.engagement_overview
+    ? `<div class="card">
+        <div class="flex-between">
+          <h3>Engagement Overview</h3>
+          <button class="btn btn-secondary btn-sm" onclick="refreshOverview()">Refresh</button>
+        </div>
+        <div class="summary-block">${escapeHtml(engagementData.engagement_overview)}</div>
+      </div>`
+    : completedSummaries.length >= 2
+      ? `<div class="card">
+          <div class="flex-between">
+            <h3>Engagement Overview</h3>
+            <button class="btn btn-primary btn-sm" onclick="refreshOverview()">Generate Overview</button>
+          </div>
+          <p class="text-sm text-muted mt-4">An AI-generated overview synthesizing all stakeholder summaries will appear here.</p>
+        </div>`
+      : '';
+
+  // Pending summary cards
+  const pendingHtml = pendingSummaries.map((r) => {
     const session = engagementData.sessions?.find((s) => s.id === r.session_id);
     return `
       <div class="card">
         <h3>${escapeHtml(session?.stakeholder_name || 'Stakeholder')}</h3>
         ${session?.stakeholder_role ? `<p class="subtitle">${escapeHtml(session.stakeholder_role)}</p>` : ''}
-        <div class="summary-block">${escapeHtml(r.ai_summary)}</div>
+        <div class="summary-generating">
+          <div class="spinner"></div>
+          <p class="text-muted">Summary is being generated...</p>
+        </div>
       </div>
     `;
-  });
+  }).join('');
+
+  // Completed summary cards (collapsible)
+  const summaryCards = completedSummaries.map((r, i) => {
+    const session = engagementData.sessions?.find((s) => s.id === r.session_id);
+    const collapsed = autoCollapse ? ' collapsed' : '';
+    return `
+      <div class="card collapsible-card${collapsed}">
+        <div class="collapsible-header" onclick="toggleSummary(this)">
+          <div>
+            <h3>${escapeHtml(session?.stakeholder_name || 'Stakeholder')}</h3>
+            ${session?.stakeholder_role ? `<p class="subtitle">${escapeHtml(session.stakeholder_role)}</p>` : ''}
+          </div>
+          <span class="collapse-icon">&rsaquo;</span>
+        </div>
+        <div class="collapsible-body">
+          <div class="summary-block">${escapeHtml(r.ai_summary)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
 
   el.innerHTML = `
+    ${overviewHtml}
     <div class="card">
-      <h3>Combined Discovery Results</h3>
-      <p class="text-sm text-muted">${results.length} completed session${results.length !== 1 ? 's' : ''}</p>
+      <h3>Individual Discovery Summaries</h3>
+      <p class="text-sm text-muted">${completedSummaries.length} completed${pendingSummaries.length > 0 ? `, ${pendingSummaries.length} generating` : ''}</p>
     </div>
-    ${summaries.join('')}
+    ${pendingHtml}
+    ${summaryCards}
   `;
+}
+
+function toggleSummary(header) {
+  const card = header.closest('.collapsible-card');
+  card.classList.toggle('collapsed');
+}
+
+async function refreshOverview() {
+  const el = document.getElementById('detail-aggregate');
+  // Find the overview button and show loading state
+  const btns = el.querySelectorAll('button');
+  btns.forEach((b) => { if (b.textContent.includes('Overview') || b.textContent.includes('Refresh') || b.textContent.includes('Generate')) { b.disabled = true; b.textContent = 'Generating...'; } });
+
+  try {
+    const res = await apiFetch(`/engagements/${currentEngagementId}/refresh-overview`, {
+      method: 'POST',
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.error || 'Failed to generate overview.');
+      return;
+    }
+
+    const data = await res.json();
+    engagementData.engagement_overview = data.overview;
+    renderAggregate();
+  } catch (err) {
+    alert('Failed to generate overview.');
+  } finally {
+    // Re-enable buttons (renderAggregate will replace them anyway)
+    btns.forEach((b) => { b.disabled = false; });
+  }
 }
 
 // Utilities

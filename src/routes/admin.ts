@@ -3,6 +3,7 @@ import type { Env } from '../index';
 import { saveAdminToken, validateAdminToken, getConfigValue, setConfigValue } from '../services/session';
 import * as db from '../services/db';
 import * as monday from '../services/monday';
+import * as claude from '../services/claude';
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -93,7 +94,7 @@ admin.get('/engagements/:id', async (c) => {
 admin.post('/engagements/:id/sessions', async (c) => {
   const engagementId = c.req.param('id');
   const body = await c.req.json();
-  const { stakeholderName, stakeholderEmail, stakeholderRole } = body;
+  const { stakeholderName, stakeholderEmail, stakeholderRole, steeringPrompt } = body;
 
   if (!stakeholderName) {
     return c.json({ error: 'Stakeholder name is required' }, 400);
@@ -118,6 +119,7 @@ admin.post('/engagements/:id/sessions', async (c) => {
     stakeholderName,
     stakeholderEmail,
     stakeholderRole,
+    steeringPrompt,
   });
 
   // Build the shareable link
@@ -159,6 +161,7 @@ admin.post('/engagements/:id/sessions/batch', async (c) => {
       stakeholderName: sh.name.trim(),
       stakeholderEmail: sh.email?.trim() || undefined,
       stakeholderRole: sh.role?.trim() || undefined,
+      steeringPrompt: sh.steeringPrompt?.trim() || undefined,
     });
 
     results.push({
@@ -232,6 +235,92 @@ admin.post('/settings/monday', async (c) => {
   }
   await setConfigValue(c.env.SESSION_KV, 'monday_api_key', apiKey.trim());
   return c.json({ success: true });
+});
+
+// POST /api/admin/engagements/:id/suggest-steering
+admin.post('/engagements/:id/suggest-steering', async (c) => {
+  const engagementId = c.req.param('id');
+  const { stakeholderName, stakeholderRole } = await c.req.json();
+
+  if (!stakeholderName) {
+    return c.json({ error: 'Stakeholder name is required' }, 400);
+  }
+
+  const engagement = await db.getEngagement(c.env.HYPERDRIVE, engagementId);
+  if (!engagement) {
+    return c.json({ error: 'Engagement not found' }, 404);
+  }
+
+  try {
+    const suggestions = await claude.generateSteeringSuggestions(
+      c.env.ANTHROPIC_API_KEY,
+      engagement.context || '',
+      stakeholderName,
+      stakeholderRole
+    );
+    return c.json({ suggestions });
+  } catch (err) {
+    return c.json({ suggestions: [] });
+  }
+});
+
+// POST /api/admin/engagements/:id/refresh-overview
+admin.post('/engagements/:id/refresh-overview', async (c) => {
+  const engagementId = c.req.param('id');
+
+  const engagement = await db.getEngagement(c.env.HYPERDRIVE, engagementId);
+  if (!engagement) {
+    return c.json({ error: 'Engagement not found' }, 404);
+  }
+
+  const allSummaries = await db.getAllSummariesForEngagement(c.env.HYPERDRIVE, engagementId);
+  if (allSummaries.length < 2) {
+    return c.json({ error: 'Need at least 2 completed summaries to generate an overview' }, 400);
+  }
+
+  const overview = await claude.generateEngagementOverview(
+    c.env.ANTHROPIC_API_KEY,
+    engagement.context || '',
+    allSummaries.map((s: any) => ({
+      stakeholderName: s.stakeholder_name,
+      stakeholderRole: s.stakeholder_role,
+      summary: s.ai_summary,
+    }))
+  );
+
+  await db.updateEngagementOverview(c.env.HYPERDRIVE, engagementId, overview);
+  return c.json({ overview });
+});
+
+// POST /api/admin/sessions/:sessionId/retry-summary
+admin.post('/sessions/:sessionId/retry-summary', async (c) => {
+  const sessionId = c.req.param('sessionId');
+
+  const session = await db.getSessionById(c.env.HYPERDRIVE, sessionId);
+  if (!session) {
+    return c.json({ error: 'Session not found' }, 404);
+  }
+
+  const result = await db.getDiscoveryResult(c.env.HYPERDRIVE, sessionId);
+  if (!result) {
+    return c.json({ error: 'No discovery results found for this session' }, 404);
+  }
+
+  // Reconstruct minimal state from stored data
+  const state = {
+    sessionId,
+    engagementContext: session.engagement_context || '',
+    stakeholderName: session.stakeholder_name,
+    stakeholderRole: session.stakeholder_role,
+    messages: [],
+    allAnswers: result.answers_structured || [],
+    currentBatchNumber: 0,
+  };
+
+  const summaryResult = await claude.generateSummary(c.env.ANTHROPIC_API_KEY, state as any);
+  await db.updateDiscoverySummary(c.env.HYPERDRIVE, sessionId, summaryResult.summary);
+
+  return c.json({ summary: summaryResult.summary });
 });
 
 export default admin;

@@ -97,15 +97,16 @@ export async function createSession(
     stakeholderName: string;
     stakeholderEmail?: string;
     stakeholderRole?: string;
+    steeringPrompt?: string;
   }
 ) {
   const client = getClient(hyperdrive);
   await client.connect();
   try {
     const result = await client.query(
-      `INSERT INTO sessions (engagement_id, token, stakeholder_name, stakeholder_email, stakeholder_role)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [data.engagementId, data.token, data.stakeholderName, data.stakeholderEmail || null, data.stakeholderRole || null]
+      `INSERT INTO sessions (engagement_id, token, stakeholder_name, stakeholder_email, stakeholder_role, steering_prompt)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [data.engagementId, data.token, data.stakeholderName, data.stakeholderEmail || null, data.stakeholderRole || null, data.steeringPrompt || null]
     );
     return result.rows[0];
   } finally {
@@ -236,6 +237,53 @@ export async function getDiscoveryResult(hyperdrive: Hyperdrive, sessionId: stri
       [sessionId]
     );
     return result.rows[0] || null;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function getSessionById(hyperdrive: Hyperdrive, sessionId: string) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    const result = await client.query(
+      `SELECT s.*, e.name AS engagement_name, e.context AS engagement_context
+       FROM sessions s
+       JOIN engagements e ON e.id = s.engagement_id
+       WHERE s.id = $1`,
+      [sessionId]
+    );
+    return result.rows[0] || null;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function getAllSummariesForEngagement(hyperdrive: Hyperdrive, engagementId: string) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    const result = await client.query(
+      `SELECT s.stakeholder_name, s.stakeholder_role, dr.ai_summary
+       FROM sessions s
+       JOIN discovery_results dr ON dr.session_id = s.id
+       WHERE s.engagement_id = $1 AND dr.ai_summary IS NOT NULL AND dr.ai_summary != ''`,
+      [engagementId]
+    );
+    return result.rows;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function updateEngagementOverview(hyperdrive: Hyperdrive, engagementId: string, overview: string) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    await client.query(
+      'UPDATE engagements SET engagement_overview = $1 WHERE id = $2',
+      [overview, engagementId]
+    );
   } finally {
     await client.end();
   }

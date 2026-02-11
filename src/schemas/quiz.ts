@@ -35,6 +35,7 @@ export interface ConversationState {
   engagementContext: string;
   stakeholderName: string;
   stakeholderRole?: string;
+  steeringPrompt?: string;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   allAnswers: QuizAnswer[];
   currentBatchNumber: number;
@@ -111,6 +112,37 @@ export const quizBatchToolSchema = {
   },
 };
 
+export const steeringSuggestionsToolSchema = {
+  name: 'suggest_steering_prompts',
+  description:
+    'Suggest 3-5 focus-area prompts that would help steer a discovery session toward the most useful topics for this engagement and stakeholder.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      suggestions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            label: {
+              type: 'string',
+              description: 'Short label for the focus area (e.g., "Process bottlenecks")',
+            },
+            prompt: {
+              type: 'string',
+              description: 'The steering prompt text to inject into the system prompt',
+            },
+          },
+          required: ['label', 'prompt'],
+        },
+        minItems: 3,
+        maxItems: 5,
+      },
+    },
+    required: ['suggestions'],
+  },
+};
+
 export const summaryToolSchema = {
   name: 'generate_discovery_summary',
   description:
@@ -135,5 +167,20 @@ export const summaryToolSchema = {
       },
     },
     required: ['summary', 'keyThemes', 'priorityLevel'],
+  },
+};
+
+export const engagementOverviewToolSchema = {
+  name: 'generate_engagement_overview',
+  description: 'Synthesize all individual stakeholder discovery summaries into one engagement-level overview.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      overview: {
+        type: 'string',
+        description: 'A comprehensive engagement overview that synthesizes themes, consensus points, and divergences across all stakeholder summaries.',
+      },
+    },
+    required: ['overview'],
   },
 };

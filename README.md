@@ -38,6 +38,7 @@ public/
 migrations/
   001_initial.sql       # Core tables: engagements, sessions, discovery_results
   002_conversation_state.sql  # Durable session state column
+  003_steering_and_overview.sql  # Per-session steering + engagement overview
 wrangler.toml           # Cloudflare Workers configuration
 ```
 
@@ -45,13 +46,16 @@ wrangler.toml           # Cloudflare Workers configuration
 
 - **Admin Dashboard:** Create engagements, batch-create stakeholder sessions, manage Monday.com API key via settings UI
 - **Monday.com Integration:** Import engagement context from Monday.com boards/items (API key configurable via admin panel or env var)
-- **AI-Driven Discovery:** Claude generates 2-4 tailored multiple-choice questions per batch, adapting based on prior answers
+- **AI-Driven Discovery:** Claude generates 2-4 tailored multiple-choice questions per batch, adapting based on prior answers. Questions are open-ended and non-leading, following a first-principles approach that lets the stakeholder's genuine perspective emerge
+- **Session Steering:** Admins can request AI-suggested focus areas per stakeholder (based on role and engagement context), select from them, and inject custom steering that guides — but doesn't force — the discovery questions
 - **"Other" Free-Text Option:** Every question includes an "Other" field for custom stakeholder input
-- **Fast Submit (Fire-and-Forget):** Answers are saved and the session is marked complete synchronously, returning instantly. AI summary generation runs in the background via `waitUntil`, so users never experience browser timeouts
+- **Fast Submit (Fire-and-Forget):** Answers are saved and the session is marked complete synchronously, returning instantly. AI summary generation runs in the background via `waitUntil`, so users never experience browser timeouts. Pending summaries show spinners with auto-polling in the admin UI
+- **Engagement Overview:** When 2+ session summaries are completed, an engagement-level overview is auto-generated synthesizing themes, consensus, and divergences across all stakeholders. Can also be manually refreshed
+- **Collapsible Summaries:** In the aggregate tab, individual summaries auto-collapse when there are many, with the engagement overview displayed prominently at the top
 - **Session Resumability:** Conversation state is durably persisted to PostgreSQL, so sessions survive browser closures and can be resumed days later
 - **Batch Session Creation:** Admins can queue up multiple stakeholder sessions at once
 - **Status Tracking:** Sessions show "Not Started", "In Progress", or "Completed"
-- **Aggregate Summaries:** View individual AI-generated discovery summaries or aggregate results across all stakeholders
+- **Summary Retry:** If background summary generation fails, admins can manually retry from the admin panel
 
 ## Infrastructure
 
@@ -83,4 +87,5 @@ Run against the Railway PostgreSQL instance:
 ```bash
 psql "$DATABASE_PUBLIC_URL" -f migrations/001_initial.sql
 psql "$DATABASE_PUBLIC_URL" -f migrations/002_conversation_state.sql
+psql "$DATABASE_PUBLIC_URL" -f migrations/003_steering_and_overview.sql
 ```

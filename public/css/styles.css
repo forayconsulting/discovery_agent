@@ -316,6 +316,21 @@ h3 { font-size: 1.1rem; font-weight: 600; color: var(--gray-800); }
   border-width: 3px;
 }
 
+.spinner-inline {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+  vertical-align: middle;
+}
+
+.summary-generating {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 16px;
+  gap: 12px;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -509,6 +524,61 @@ h3 { font-size: 1.1rem; font-weight: 600; color: var(--gray-800); }
 .gap-2 { gap: 8px; }
 .gap-3 { gap: 12px; }
 .hidden { display: none !important; }
+
+/* Collapsible summary cards */
+.collapsible-card .collapsible-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.collapsible-card .collapse-icon {
+  font-size: 1.4rem;
+  color: var(--gray-400);
+  transition: transform 0.2s;
+  transform: rotate(90deg);
+}
+
+.collapsible-card.collapsed .collapse-icon {
+  transform: rotate(0deg);
+}
+
+.collapsible-card .collapsible-body {
+  transition: max-height 0.3s ease, opacity 0.2s ease;
+  max-height: 2000px;
+  opacity: 1;
+  overflow: hidden;
+}
+
+.collapsible-card.collapsed .collapsible-body {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* Steering panel */
+.steering-panel {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+}
+
+.steering-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.steering-option input[type="checkbox"] {
+  margin-top: 3px;
+  accent-color: var(--primary);
+}
 
 @media (max-width: 640px) {
   .container { padding: 16px 12px; }

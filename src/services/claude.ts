@@ -1,9 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { quizBatchToolSchema, summaryToolSchema } from '../schemas/quiz';
+import { quizBatchToolSchema, summaryToolSchema, steeringSuggestionsToolSchema, engagementOverviewToolSchema } from '../schemas/quiz';
 import type { QuizBatch, QuizAnswer, ConversationState } from '../schemas/quiz';
 
-function buildSystemPrompt(engagementContext: string, stakeholderName: string, stakeholderRole?: string): string {
-  return `You are a professional discovery consultant conducting a stakeholder interview for a consulting engagement. Your goal is to understand this stakeholder's perspective on the project, their challenges, priorities, and expectations.
+function buildSystemPrompt(engagementContext: string, stakeholderName: string, stakeholderRole?: string, steeringPrompt?: string): string {
+  const focusSection = steeringPrompt
+    ? `\n## Focus Areas\nThe interviewer has requested emphasis on: ${steeringPrompt}\nWeave these topics in naturally — do not force them if the stakeholder's answers lead elsewhere.\n`
+    : '';
+
+  return `You are a professional discovery consultant conducting a stakeholder interview. Your goal is to understand this stakeholder's genuine perspective — what they see, what matters to them, and how they experience their work.
 
 ## Engagement Context
 ${engagementContext || 'No specific context provided. Conduct a general stakeholder discovery.'}
@@ -11,11 +15,13 @@ ${engagementContext || 'No specific context provided. Conduct a general stakehol
 ## Stakeholder
 - Name: ${stakeholderName}
 ${stakeholderRole ? `- Role: ${stakeholderRole}` : ''}
-
+${focusSection}
 ## Instructions
 - Generate 2-4 multiple-choice questions per batch
-- Start with broad questions about their role and primary challenges, then narrow down based on answers
-- Adapt your questions based on previous answers - drill deeper into areas of concern
+- Start with open-ended questions about the stakeholder's perspective, observations, and day-to-day experience before narrowing
+- Follow the stakeholder's lead — drill deeper into whatever they indicate matters, whether positive or negative
+- If the stakeholder indicates things are going well, explore what is working and why rather than steering toward problems
+- Write neutral, non-leading option text that includes positive, neutral, and less-positive perspectives
 - Use "single" type for mutually exclusive choices, "multi" type when multiple answers make sense
 - Include "allowNoneOfTheAbove" when the options might not cover the stakeholder's situation
 - After 4-6 batches (or when you have thorough coverage), set isComplete to true
@@ -50,7 +56,8 @@ export async function generateNextBatch(
   const systemPrompt = buildSystemPrompt(
     state.engagementContext,
     state.stakeholderName,
-    state.stakeholderRole
+    state.stakeholderRole,
+    state.steeringPrompt
   );
 
   const messages: Anthropic.MessageParam[] = state.messages.map((m) => ({
@@ -120,7 +127,10 @@ ${state.engagementContext || 'General stakeholder discovery.'}
 
 ## Stakeholder
 - Name: ${state.stakeholderName}
-${state.stakeholderRole ? `- Role: ${state.stakeholderRole}` : ''}`;
+${state.stakeholderRole ? `- Role: ${state.stakeholderRole}` : ''}
+
+## Guiding Principle
+Present the stakeholder's perspective faithfully — report what they expressed, including areas of satisfaction as well as concern. Do not editorialize or infer problems not indicated.`;
 
   // Build a comprehensive user message with all answers
   const allAnswersText = state.allAnswers
@@ -152,4 +162,67 @@ ${state.stakeholderRole ? `- Role: ${state.stakeholderRole}` : ''}`;
   }
 
   return toolUse.input as { summary: string; keyThemes: string[]; priorityLevel: string };
+}
+
+export async function generateSteeringSuggestions(
+  apiKey: string,
+  engagementContext: string,
+  stakeholderName: string,
+  stakeholderRole?: string
+): Promise<Array<{ label: string; prompt: string }>> {
+  const client = new Anthropic({ apiKey });
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-5-20250929',
+    max_tokens: 1024,
+    system: 'You are a professional discovery consultant. Suggest focus-area prompts that would help steer a stakeholder discovery session toward the most useful topics given the engagement context and stakeholder role.',
+    messages: [
+      {
+        role: 'user',
+        content: `Engagement context: ${engagementContext || 'General discovery'}\nStakeholder: ${stakeholderName}${stakeholderRole ? ` (${stakeholderRole})` : ''}\n\nSuggest 3-5 steering prompts.`,
+      },
+    ],
+    tools: [steeringSuggestionsToolSchema],
+    tool_choice: { type: 'tool', name: 'suggest_steering_prompts' },
+  });
+
+  const toolUse = response.content.find((block) => block.type === 'tool_use');
+  if (!toolUse || toolUse.type !== 'tool_use') {
+    throw new Error('Claude did not return steering suggestions');
+  }
+
+  return (toolUse.input as { suggestions: Array<{ label: string; prompt: string }> }).suggestions;
+}
+
+export async function generateEngagementOverview(
+  apiKey: string,
+  engagementContext: string,
+  summaries: Array<{ stakeholderName: string; stakeholderRole?: string; summary: string }>
+): Promise<string> {
+  const client = new Anthropic({ apiKey });
+
+  const summaryText = summaries
+    .map((s, i) => `### ${s.stakeholderName}${s.stakeholderRole ? ` (${s.stakeholderRole})` : ''}\n${s.summary}`)
+    .join('\n\n');
+
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-5-20250929',
+    max_tokens: 2048,
+    system: 'You are a professional discovery consultant. Synthesize multiple stakeholder discovery summaries into one engagement-level overview. Identify common themes, consensus points, and areas of divergence. Present findings faithfully without editorializing.',
+    messages: [
+      {
+        role: 'user',
+        content: `Engagement context: ${engagementContext || 'General discovery'}\n\nIndividual stakeholder summaries:\n\n${summaryText}\n\nPlease synthesize these into an engagement-level overview.`,
+      },
+    ],
+    tools: [engagementOverviewToolSchema],
+    tool_choice: { type: 'tool', name: 'generate_engagement_overview' },
+  });
+
+  const toolUse = response.content.find((block) => block.type === 'tool_use');
+  if (!toolUse || toolUse.type !== 'tool_use') {
+    throw new Error('Claude did not return an engagement overview');
+  }
+
+  return (toolUse.input as { overview: string }).overview;
 }
