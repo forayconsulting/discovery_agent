@@ -94,60 +94,78 @@ function renderBatch(batch) {
   const container = document.getElementById('questions-container');
   container.innerHTML = '';
 
+  // Validate batch structure before rendering
+  if (!batch || !Array.isArray(batch.questions) || batch.questions.length === 0) {
+    container.innerHTML = '<div class="card"><p>Unable to load questions. Please refresh the page to try again.</p></div>';
+    return;
+  }
+
   document.getElementById('batch-indicator').textContent = `Batch ${batch.batchNumber}`;
 
   // Progress estimation (assume ~5 batches typical)
   const progress = Math.min((batch.batchNumber / 6) * 100, 90);
   document.getElementById('progress-fill').style.width = `${progress}%`;
-  document.getElementById('progress-hint').textContent = batch.progressHint || '';
+  // Truncate progressHint client-side as a safety net
+  const hint = batch.progressHint || '';
+  document.getElementById('progress-hint').textContent = hint.length > 200 ? hint.slice(0, 100) : hint;
 
-  batch.questions.forEach((q) => {
-    const card = document.createElement('div');
-    card.className = 'question-card';
-    card.setAttribute('data-question-id', q.id);
+  try {
+    batch.questions.forEach((q) => {
+      // Skip malformed questions
+      if (!q || !q.id || !q.text || !Array.isArray(q.options)) return;
 
-    let html = `<div class="question-text">${escapeHtml(q.text)}</div>`;
-    if (q.description) {
-      html += `<div class="question-description">${escapeHtml(q.description)}</div>`;
-    }
+      const card = document.createElement('div');
+      card.className = 'question-card';
+      card.setAttribute('data-question-id', q.id);
 
-    html += '<div class="option-list">';
+      let html = `<div class="question-text">${escapeHtml(q.text)}</div>`;
+      if (q.description) {
+        html += `<div class="question-description">${escapeHtml(q.description)}</div>`;
+      }
 
-    const inputType = q.type === 'single' ? 'radio' : 'checkbox';
-    const inputName = `q_${q.id}`;
+      html += '<div class="option-list">';
 
-    q.options.forEach((opt) => {
+      const inputType = q.type === 'single' ? 'radio' : 'checkbox';
+      const inputName = `q_${q.id}`;
+
+      q.options.forEach((opt) => {
+        if (!opt || !opt.id || !opt.label) return;
+        html += `
+          <label class="option-item" data-option-id="${escapeHtml(opt.id)}">
+            <input type="${inputType}" name="${inputName}" value="${escapeHtml(opt.id)}"
+              onchange="handleOptionChange('${escapeAttr(q.id)}', '${escapeAttr(opt.id)}', '${escapeAttr(opt.label)}', '${escapeAttr(q.type)}', this)">
+            <span class="option-label">${escapeHtml(opt.label)}</span>
+          </label>`;
+      });
+
+      if (q.allowNoneOfTheAbove) {
+        html += `
+          <label class="option-item" data-option-id="none">
+            <input type="${inputType}" name="${inputName}" value="none"
+              onchange="handleNoneOfAbove('${escapeAttr(q.id)}', '${escapeAttr(q.type)}', this)">
+            <span class="option-label">None of the above</span>
+          </label>`;
+      }
+
       html += `
-        <label class="option-item" data-option-id="${opt.id}">
-          <input type="${inputType}" name="${inputName}" value="${opt.id}"
-            onchange="handleOptionChange('${q.id}', '${opt.id}', '${escapeAttr(opt.label)}', '${q.type}', this)">
-          <span class="option-label">${escapeHtml(opt.label)}</span>
+        <label class="option-item other-option" data-option-id="other">
+          <input type="${inputType}" name="${inputName}" value="other"
+            onchange="handleOther('${escapeAttr(q.id)}', '${escapeAttr(q.type)}', this)">
+          <span class="option-label">Other:</span>
+          <input type="text" class="other-text-input" placeholder="Please specify..."
+            data-question-id="${escapeHtml(q.id)}" disabled
+            oninput="handleOtherText('${escapeAttr(q.id)}', this.value)">
         </label>`;
+
+      html += '</div>';
+      card.innerHTML = html;
+      container.appendChild(card);
     });
-
-    if (q.allowNoneOfTheAbove) {
-      html += `
-        <label class="option-item" data-option-id="none">
-          <input type="${inputType}" name="${inputName}" value="none"
-            onchange="handleNoneOfAbove('${q.id}', '${q.type}', this)">
-          <span class="option-label">None of the above</span>
-        </label>`;
-    }
-
-    html += `
-      <label class="option-item other-option" data-option-id="other">
-        <input type="${inputType}" name="${inputName}" value="other"
-          onchange="handleOther('${q.id}', '${q.type}', this)">
-        <span class="option-label">Other:</span>
-        <input type="text" class="other-text-input" placeholder="Please specify..."
-          data-question-id="${q.id}" disabled
-          oninput="handleOtherText('${q.id}', this.value)">
-      </label>`;
-
-    html += '</div>';
-    card.innerHTML = html;
-    container.appendChild(card);
-  });
+  } catch (err) {
+    console.error('Error rendering questions:', err);
+    container.innerHTML = '<div class="card"><p>Something went wrong displaying the questions. Please refresh the page to try again.</p></div>';
+    return;
+  }
 
   updateNextButton();
 }
@@ -382,5 +400,11 @@ function escapeHtml(str) {
 }
 
 function escapeAttr(str) {
-  return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }

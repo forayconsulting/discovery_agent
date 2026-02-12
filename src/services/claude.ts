@@ -107,6 +107,18 @@ export async function generateNextBatch(
     batch.questions = [];
   }
 
+  // Sanitize progressHint — model sometimes dumps raw tool call text into this field
+  if (batch.progressHint && batch.progressHint.length > 200) {
+    batch.progressHint = batch.progressHint.slice(0, 100);
+  }
+
+  // Validate question structure — drop malformed questions
+  batch.questions = batch.questions.filter((q) =>
+    q && typeof q.id === 'string' && typeof q.text === 'string' &&
+    Array.isArray(q.options) && q.options.length > 0 &&
+    q.options.every((o: any) => o && typeof o.id === 'string' && typeof o.label === 'string')
+  );
+
   // Override batchNumber to match our tracked state (model may miscount)
   batch.batchNumber = state.currentBatchNumber;
 
