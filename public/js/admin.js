@@ -1020,6 +1020,34 @@ async function refreshOverview() {
   }
 }
 
+// Delete engagement
+async function deleteEngagement() {
+  if (!currentEngagementId) return;
+
+  const confirmed = confirm(
+    'Are you sure you want to delete this engagement? All sessions, results, and uploaded documents will be permanently deleted.'
+  );
+  if (!confirmed) return;
+
+  try {
+    const res = await apiFetch(`/engagements/${currentEngagementId}`, {
+      method: 'DELETE',
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.error || 'Failed to delete engagement.');
+      return;
+    }
+
+    currentEngagementId = null;
+    engagementData = null;
+    showView('list');
+  } catch (err) {
+    alert('Failed to delete engagement.');
+  }
+}
+
 // Utilities
 function escapeHtml(str) {
   if (!str) return '';

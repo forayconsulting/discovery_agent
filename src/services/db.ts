@@ -382,3 +382,55 @@ export async function updateEngagementFromDocuments(
     await client.end();
   }
 }
+
+export async function getEngagementCleanupData(
+  hyperdrive: Hyperdrive,
+  engagementId: string
+) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    const sessions = await client.query(
+      'SELECT id FROM sessions WHERE engagement_id = $1',
+      [engagementId]
+    );
+    const documents = await client.query(
+      'SELECT r2_key FROM engagement_documents WHERE engagement_id = $1',
+      [engagementId]
+    );
+    return {
+      sessionIds: sessions.rows.map((r: any) => r.id),
+      r2Keys: documents.rows.map((r: any) => r.r2_key),
+    };
+  } finally {
+    await client.end();
+  }
+}
+
+export async function deleteEngagement(
+  hyperdrive: Hyperdrive,
+  engagementId: string
+) {
+  const client = getClient(hyperdrive);
+  await client.connect();
+  try {
+    await client.query(
+      'DELETE FROM discovery_results WHERE session_id IN (SELECT id FROM sessions WHERE engagement_id = $1)',
+      [engagementId]
+    );
+    await client.query(
+      'DELETE FROM sessions WHERE engagement_id = $1',
+      [engagementId]
+    );
+    await client.query(
+      'DELETE FROM engagement_documents WHERE engagement_id = $1',
+      [engagementId]
+    );
+    await client.query(
+      'DELETE FROM engagements WHERE id = $1',
+      [engagementId]
+    );
+  } finally {
+    await client.end();
+  }
+}

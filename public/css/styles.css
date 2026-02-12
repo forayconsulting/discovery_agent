@@ -114,6 +114,15 @@ h3 { font-size: 1.1rem; font-weight: 600; color: var(--gray-800); }
   background: var(--gray-200);
 }
 
+.btn-danger {
+  background: var(--red-500);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #dc2626;
+}
+
 .btn-sm {
   padding: 6px 14px;
   font-size: 0.85rem;

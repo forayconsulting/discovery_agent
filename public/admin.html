@@ -128,7 +128,10 @@
 
   <!-- Engagement Detail -->
   <div id="detail-screen" class="container-wide hidden">
-    <button class="btn btn-secondary btn-sm mb-4" onclick="showView('list')">&larr; Back</button>
+    <div class="flex-between mb-4">
+      <button class="btn btn-secondary btn-sm" onclick="showView('list')">&larr; Back</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteEngagement()">Delete Engagement</button>
+    </div>
 
     <div id="detail-header"></div>
 

@@ -446,6 +446,34 @@ admin.post('/engagements/:id/documents/extract', async (c) => {
   return c.json({ extracting: true });
 });
 
+// DELETE /api/admin/engagements/:id
+admin.delete('/engagements/:id', async (c) => {
+  const id = c.req.param('id');
+
+  const engagement = await db.getEngagement(c.env.HYPERDRIVE, id);
+  if (!engagement) {
+    return c.json({ error: 'Engagement not found' }, 404);
+  }
+
+  // Fetch session IDs and document R2 keys before deletion
+  const cleanup = await db.getEngagementCleanupData(c.env.HYPERDRIVE, id);
+
+  // Delete KV entries for each session
+  await Promise.all(
+    cleanup.sessionIds.map((sid: string) => c.env.SESSION_KV.delete(`session:${sid}`))
+  );
+
+  // Delete R2 objects for each document
+  await Promise.all(
+    cleanup.r2Keys.map((key: string) => c.env.DOCUMENTS_R2.delete(key))
+  );
+
+  // Cascade delete from DB
+  await db.deleteEngagement(c.env.HYPERDRIVE, id);
+
+  return c.json({ success: true });
+});
+
 // GET /api/admin/engagements/:id/documents — list documents
 admin.get('/engagements/:id/documents', async (c) => {
   const engagementId = c.req.param('id');
