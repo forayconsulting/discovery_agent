@@ -33,6 +33,7 @@ src/
 public/
   admin.html            # Admin dashboard
   session.html          # Stakeholder quiz interface
+  favicon.svg           # Site favicon
   js/admin.js           # Admin client logic
   js/session.js         # Session quiz client logic
   css/styles.css        # Shared styles
@@ -52,13 +53,13 @@ wrangler.toml           # Cloudflare Workers configuration
 - **AI-Driven Discovery:** Claude generates 2-4 tailored multiple-choice questions per batch, adapting based on prior answers. Questions are open-ended and non-leading, following a first-principles approach that lets the stakeholder's genuine perspective emerge
 - **Session Steering:** Admins can request AI-suggested focus areas per stakeholder (based on role and engagement context), select from them, and inject custom steering that guides — but doesn't force — the discovery questions
 - **"Other" Free-Text Option:** Every question includes an "Other" field for custom stakeholder input
-- **Fast Submit (Fire-and-Forget):** Answers are saved and the session is marked complete synchronously, returning instantly. AI summary generation runs in the background via `waitUntil`, so users never experience browser timeouts. Pending summaries show spinners with auto-polling in the admin UI
+- **Fast Submit (Fire-and-Forget):** Answers are saved and the session is marked complete synchronously, returning instantly. AI summary generation runs in the background via `waitUntil`, so users never experience browser timeouts. Pending summaries show spinners with auto-polling in the admin UI. If the background task fails silently (common with Workers `waitUntil` limits), the client auto-retries via the `retry-summary` endpoint after ~15 seconds of polling, and the "Check Again" button also triggers active regeneration
 - **Engagement Overview:** When 2+ session summaries are completed, an engagement-level overview is auto-generated synthesizing themes, consensus, and divergences across all stakeholders. Can also be manually refreshed
 - **Collapsible Summaries:** In the aggregate tab, individual summaries auto-collapse when there are many, with the engagement overview displayed prominently at the top
 - **Session Resumability:** Conversation state is durably persisted to PostgreSQL, so sessions survive browser closures and can be resumed days later
 - **Batch Session Creation:** Admins can queue up multiple stakeholder sessions at once
 - **Status Tracking:** Sessions show "Not Started", "In Progress", or "Completed"
-- **Summary Retry:** If background summary generation fails, admins can manually retry from the admin panel
+- **Summary Retry:** If background summary generation fails, the admin UI auto-triggers a retry after ~15s of polling, and the "Check Again" button actively calls the retry endpoint rather than passively re-fetching
 
 ## Infrastructure
 

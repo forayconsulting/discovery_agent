@@ -5,7 +5,9 @@ let authToken = localStorage.getItem('admin_token');
 let currentEngagementId = null;
 let engagementData = null;
 let summaryPollTimer = null;
+let summaryPollCount = 0;
 let overviewPollTimer = null;
+let sessionPollTimer = null;
 let selectedFiles = [];
 
 // Helpers
@@ -36,6 +38,7 @@ async function apiFetch(path, options = {}) {
 function showView(view) {
   stopSummaryPolling();
   stopOverviewPolling();
+  stopSessionPolling();
   const allScreens = ['login-screen', 'list-screen', 'create-screen', 'detail-screen', 'settings-screen'];
   allScreens.forEach((id) => document.getElementById(id).classList.add('hidden'));
   document.getElementById('nav').classList.toggle('hidden', view === 'login');
@@ -509,6 +512,7 @@ async function loadEngagementDetail(id) {
     initStakeholderForm();
     renderSessions();
     renderAggregate();
+    startSessionPolling();
   } catch (err) {
     headerEl.innerHTML = '<p class="text-muted">Failed to load engagement.</p>';
   }
@@ -847,8 +851,15 @@ function stopSummaryPolling() {
 
 function startSummaryPolling(sessionId) {
   stopSummaryPolling();
+  summaryPollCount = 0;
   summaryPollTimer = setInterval(async () => {
+    summaryPollCount++;
     try {
+      // After 3 poll attempts (15s), the background generation likely failed — trigger retry
+      if (summaryPollCount === 3) {
+        await triggerSummaryRetry(sessionId);
+        return;
+      }
       const res = await apiFetch(`/engagements/${currentEngagementId}`);
       const data = await res.json();
       engagementData = data.engagement;
@@ -864,8 +875,48 @@ function startSummaryPolling(sessionId) {
   }, 5000);
 }
 
+function stopSessionPolling() {
+  if (sessionPollTimer) {
+    clearInterval(sessionPollTimer);
+    sessionPollTimer = null;
+  }
+}
+
+function startSessionPolling() {
+  stopSessionPolling();
+  sessionPollTimer = setInterval(async () => {
+    if (!currentEngagementId) return;
+    try {
+      const res = await apiFetch(`/engagements/${currentEngagementId}`);
+      const data = await res.json();
+      engagementData = data.engagement;
+      renderSessions();
+    } catch (err) {
+      // Silently retry on next interval
+    }
+  }, 15000);
+}
+
+async function triggerSummaryRetry(sessionId) {
+  try {
+    const res = await apiFetch(`/sessions/${sessionId}/retry-summary`, { method: 'POST' });
+    const data = await res.json();
+    if (data.summary) {
+      stopSummaryPolling();
+      // Refresh engagement data so the summary is in the local cache
+      const engRes = await apiFetch(`/engagements/${currentEngagementId}`);
+      engagementData = (await engRes.json()).engagement;
+      viewResult(sessionId);
+      renderSessions();
+    }
+  } catch (err) {
+    // Will retry on next poll or manual click
+  }
+}
+
 async function refreshSummary(sessionId) {
   try {
+    // First check if it arrived from the background task
     const res = await apiFetch(`/engagements/${currentEngagementId}`);
     const data = await res.json();
     engagementData = data.engagement;
@@ -874,7 +925,10 @@ async function refreshSummary(sessionId) {
       stopSummaryPolling();
       viewResult(sessionId);
       renderSessions();
+      return;
     }
+    // Not there yet — actively trigger generation
+    await triggerSummaryRetry(sessionId);
   } catch (err) {
     // Ignore
   }

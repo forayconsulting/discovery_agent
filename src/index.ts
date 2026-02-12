@@ -17,6 +17,9 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use('/*', cors());
 
+// Root redirect
+app.get('/', (c) => c.redirect('/admin.html'));
+
 // Health check
 app.get('/api/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() });
