@@ -60,24 +60,36 @@ export async function generateNextBatch(
     state.steeringPrompt
   );
 
-  const messages: Anthropic.MessageParam[] = state.messages.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
+  // Build a single user message with full Q&A context instead of replaying
+  // multi-turn conversation history. This avoids tool_use/tool_result format
+  // issues that cause rendering failures in later batches.
+  let userMessage: string;
+  if (state.allAnswers.length === 0) {
+    userMessage = 'Please begin the discovery session. Generate the first batch of questions.';
+  } else {
+    const priorQA = state.allAnswers
+      .map((a, i) => {
+        if (a.customText) {
+          const selected = a.selectedLabels.length > 0
+            ? `Selected ${a.selectedLabels.map((l) => `"${l}"`).join(' and ')}; also wrote: "${a.customText}"`
+            : `Wrote custom answer: "${a.customText}"`;
+          return `${i + 1}. "${a.questionText}": ${selected}`;
+        }
+        if (a.noneOfTheAbove) {
+          return `${i + 1}. "${a.questionText}": Selected "None of the above"`;
+        }
+        return `${i + 1}. "${a.questionText}": Selected ${a.selectedLabels.map((l) => `"${l}"`).join(' and ')}`;
+      })
+      .join('\n');
 
-  // If this is the first batch, add a starter user message
-  if (messages.length === 0) {
-    messages.push({
-      role: 'user',
-      content: 'Please begin the discovery session. Generate the first batch of questions.',
-    });
+    userMessage = `Here are all the stakeholder's answers so far from ${state.currentBatchNumber - 1} batch(es):\n\n${priorQA}\n\nPlease generate batch ${state.currentBatchNumber} of discovery questions. Build on the answers above — drill deeper into themes the stakeholder has raised.`;
   }
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1024,
+    max_tokens: 2048,
     system: systemPrompt,
-    messages,
+    messages: [{ role: 'user', content: userMessage }],
     tools: [quizBatchToolSchema],
     tool_choice: { type: 'tool', name: 'generate_quiz_batch' },
   });
@@ -95,7 +107,14 @@ export async function generateNextBatch(
     batch.questions = [];
   }
 
-  // Update conversation state with assistant's response (as text representation)
+  // Override batchNumber to match our tracked state (model may miscount)
+  batch.batchNumber = state.currentBatchNumber;
+
+  // Update conversation state for audit trail
+  state.messages.push({
+    role: 'user',
+    content: userMessage,
+  });
   state.messages.push({
     role: 'assistant',
     content: JSON.stringify(batch),
